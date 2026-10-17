@@ -3,17 +3,20 @@
 Permite iniciar a aplicação via console script (``ytmusic-tui``), com
 ``python -m ytmusic_tui`` ou ``python main.py``. Sem argumentos abre a TUI
 (``ytmusic_tui.tui.app.main``); o subcomando ``doctor`` roda o diagnóstico
-do ambiente (``ytmusic_tui.doctor``) sem abrir a interface (§13.3/T13).
+do ambiente (``ytmusic_tui.doctor``) sem abrir a interface e ``--version``
+imprime a versão instalada (§13.3/T13; T16).
 """
 
 import argparse
 import sys
 
+from ytmusic_tui import __version__
+
 __all__ = ["main"]
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """CLI mínima: sem comando abre a TUI; ``doctor`` diagnostica."""
+    """CLI mínima: sem comando abre a TUI; ``doctor`` e ``--version`` informam."""
     parser = argparse.ArgumentParser(
         prog="ytmusic-tui",
         description=(
@@ -26,6 +29,12 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         choices=("doctor",),
         help="comando opcional (padrão: abrir a TUI)",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="mostra a versão instalada e sai",
     )
     return parser
 

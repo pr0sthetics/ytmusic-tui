@@ -197,3 +197,15 @@ def test_main_argumento_desconhecido_e_erro_de_uso(capsys):
 
     assert excinfo.value.code == 2
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_main_version_imprime_e_sai(capsys):
+    """``--version`` imprime a versão instalada e sai com 0 (GQ-14/T16)."""
+    import ytmusic_tui
+    from ytmusic_tui.main import main
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--version"])
+
+    assert excinfo.value.code == 0
+    assert capsys.readouterr().out.strip() == f"ytmusic-tui {ytmusic_tui.__version__}"

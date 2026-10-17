@@ -270,6 +270,8 @@ python -m ytmusic_tui    # as a module
 python main.py           # straight from the source tree (uses src/, no install)
 ```
 
+`ytmusic-tui --version` prints the installed version (handy in bug reports) and `ytmusic-tui doctor` checks the environment without opening the interface.
+
 `ytmusic-tui` (console script) and `python -m ytmusic_tui` are both **supported entry points** and equivalent, `doctor` included; `python main.py` only works from a source checkout.
 
 ### Basic flow
