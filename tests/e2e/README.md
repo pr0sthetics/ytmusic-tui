@@ -24,7 +24,10 @@ Com `YTMUSIC_E2E=1`, um teste faz, em sequência:
 
 Tudo aponta para o **tmp do pytest** (`YTMUSIC_CONFIG_DIR`, `YTMUSIC_DATA_DIR`,
 `YTMUSIC_CACHE_DIR`, `YTMUSIC_DOWNLOAD_DIR` e `XDG_STATE_HOME`): nada toca os
-dados, o log ou os downloads reais. O arquivo baixado morre com o tmp.
+dados, o log ou os downloads reais. Desde o T16 (Q16), o próprio
+`config.toml` acompanha o `YTMUSIC_CONFIG_DIR` — o arquivo real do usuário
+nunca é lido nem gravado, e o teste ainda guarda (tamanho/mtime) do arquivo
+real antes/depois como regressão. O arquivo baixado morre com o tmp.
 
 ## Como rodar
 
@@ -44,11 +47,14 @@ YTMUSIC_E2E=1 .venv/bin/python -m pytest tests/e2e -v -s --basetemp=/tmp/e2e-l4
 ls -R /tmp/e2e-l4   # fonte copiada, dist/, venv/, music/, state/…
 ```
 
-> **Instabilidade externa:** o fluxo depende do YouTube — uma rodada pode
-> falhar num passo de rede (player que não carrega ou `403` no download) por
-> oscilação do serviço, como o app real também sofreria no mesmo momento.
-> Espere um pouco e rode de novo; se persistir, aí sim investigue como
-> falha de verdade.
+> **Instabilidade externa (Q17):** o fluxo depende do YouTube — uma rodada
+> pode falhar num passo de rede (player que não carrega ou `403` no download)
+> por oscilação do serviço, como o app real também sofreria no mesmo momento.
+> A assinatura em rajada é `no audio or video data played` **com a extração
+> do yt-dlp ok (rc=0)**. Regra para a release (docs/release.md): repetir
+> **uma única vez**, preservando o primeiro resultado no relatório;
+> assinatura diferente (ou sem a extração ok) é falha real — investigue,
+> nunca mascare.
 
 ## Conferência manual (a TUI de ponta a ponta)
 

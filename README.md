@@ -4,13 +4,13 @@ A **minimalist, fast TUI client** for YouTube Music, right in your terminal: sea
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-546%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-554%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![Vibe-coded](https://img.shields.io/badge/vibe--coded-~80%25-ff69b4)
 
 > ## ⚠️ Honesty warning: this project is ~80% "vibe-coded"
 >
-> Most of this code was written in **vibe coding** — talking to an AI assistant, with review, tweaks and manual testing by the author along the way. It has **546 automated tests** and real daily use, so it **actually works** — but expect rough edges: the occasional bug, "AI-looking" code here and there and missing features (see **Limitations**).
+> Most of this code was written in **vibe coding** — talking to an AI assistant, with review, tweaks and manual testing by the author along the way. It has **554 automated tests** and real daily use, so it **actually works** — but expect rough edges: the occasional bug, "AI-looking" code here and there and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -406,7 +406,7 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **~80% vibe-coded** (warning at the top 🙂): the 546 tests cover the main flow, but the occasional bug is expected
+- **~80% vibe-coded** (warning at the top 🙂): the 554 tests cover the main flow, but the occasional bug is expected
 - No MPRIS, lyrics, equalizer, automatic radio or themes (Roadmap)
 
 ## 🆘 When something breaks (and it's not the app)
@@ -468,7 +468,7 @@ ytmusic-tui/
 │       ├── screens.py         # MainScreen: tabs, shortcuts and navigation
 │       ├── widgets.py         # Custom widgets (lists, player bar)
 │       └── *_controller.py    # Playback, downloads and library (mixins)
-└── tests/                     # 546 tests in layers (L1 mocks + L2 local) + opt-in integration
+└── tests/                     # 554 tests in layers (L1 mocks + L2 local) + opt-in integration
 ```
 
 ## 🛠️ Development

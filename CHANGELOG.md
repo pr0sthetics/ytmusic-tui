@@ -49,6 +49,20 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
   compatibilidade; terminal 80×24 = interface — macOS/Windows nativos
   não são oficialmente suportados; Python 3.11–3.13 (3.12 validado com a
   suíte completa)
+- Processo de release documentado (T16): runbook com as 10 etapas
+  obrigatórias (§14.3), versionamento semântico, rollback (versão, banco e
+  publicação) e o portão GQ-01..GQ-20 como checklist operacional — mais o
+  workflow `release.yml`, que reage a uma tag autorizada: correspondência
+  tag ↔ commit ↔ versão, guarda de CI verde, build limpo, `SHA256SUMS`,
+  notas extraídas do CHANGELOG e verificação do publicado (download,
+  hashes, `--version` e `doctor` em venvs limpos) antes de sair do
+  rascunho
+- Ruído benigno do mpv/PipeWire fora da UI (T16/Q19): avisos de
+  configuração do libpipewire (`pw.conf`/`conf.c:*`/`client.conf`) não
+  aparecem mais sobre a TUI; o mpv fala pelo log interno (ruído conhecido
+  filtrado) e erros reais seguem visíveis na interface
+- `ytmusic-tui --version` (T16): imprime a versão instalada — útil em
+  relatos de bug e na verificação do artefato publicado
 
 ### Alterado
 
@@ -91,6 +105,10 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
   2026-10-17; a entrega player→UI vinda de outra thread passou a usar
   `post_message` (thread-safe, não bloqueante) e um teste de regressão
   força a janela com o handle real
+- Isolamento de configuração do L4 (T16/Q16): `YTMUSIC_CONFIG_DIR` agora
+  move o `config.toml` junto (leitura e gravação) — antes o fluxo de
+  ponta a ponta lia (e poderia gravar) o config real do usuário; a
+  regressão é coberta por testes e por guarda no próprio L4
 
 ## [0.1.4] - 2026-10-16
 
