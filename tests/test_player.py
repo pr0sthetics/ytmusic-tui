@@ -2,6 +2,7 @@
 
 import locale
 import logging
+import os
 import shutil
 import sys
 
@@ -116,6 +117,100 @@ def test_ensure_mpv_started_restores_numeric_locale(monkeypatch, tmp_path):
         assert locale.setlocale(locale.LC_NUMERIC, None) == "C"
     finally:
         locale.setlocale(locale.LC_NUMERIC, original)
+
+
+# ===== Ruído benigno do mpv/PipeWire fora da UI (Q19 · T16-R5) =====
+
+
+def test_is_benign_mpv_noise_filters_only_the_known_pipewire_noise():
+    """Linhas sintéticas: aviso benigno filtrado × erro real preservado."""
+    # Formato real do libpipewire (relato de campo no WSL e reprodução local).
+    benignas = [
+        (
+            "pw.conf",
+            "[ conf.c: 1182 try_load_conf()] can't load config client.conf: "
+            "No such file or directory",
+        ),
+        (
+            "pw.conf",
+            "[ conf.c:  425 conf_load()] error loading config 'client.conf': "
+            "No such file or directory",
+        ),
+        (
+            "pw.conf",
+            "[ conf.c: 1215 pw_conf_load_conf_for_context()] can't load config client.conf",
+        ),
+    ]
+    for prefix, texto in benignas:
+        assert player_mod._is_benign_mpv_noise(prefix, texto), texto
+
+    # Erros reais (capturados do log_handler no host, prova local do T16).
+    reais = [
+        ("ao", "Failed to initialize audio driver 'pipewire'"),
+        ("cplayer", "Could not open/initialize audio device -> no sound."),
+        ("cplayer", "Failed to open arquivo-inexistente.mp3."),
+    ]
+    for prefix, texto in reais:
+        assert not player_mod._is_benign_mpv_noise(prefix, texto), texto
+
+
+def test_on_mpv_log_filters_noise_and_logs_real_errors(monkeypatch):
+    """O handler descarta ruído do pipewire e registra o resto como evento."""
+    registros: list[tuple] = []
+    monkeypatch.setattr(
+        player_mod,
+        "log_event",
+        lambda component, event, message, **kw: registros.append((component, event, message, kw)),
+    )
+    p = MPVPlayer()
+
+    p._on_mpv_log(
+        "warn",
+        "pw.conf",
+        "[ conf.c: 1182 try_load_conf()] can't load config client.conf",
+    )
+    assert registros == []
+
+    p._on_mpv_log("error", "cplayer", "Could not open/initialize audio device -> no sound.")
+    assert len(registros) == 1
+    component, event, message, kw = registros[0]
+    assert component == "player"
+    assert event == "mpv_log"
+    assert "[cplayer]" in message and "no sound" in message
+    assert kw["level"] == logging.ERROR
+
+
+def test_ensure_mpv_started_silences_pipewire_and_keeps_mpv_off_terminal(
+    monkeypatch,
+):
+    """Q19: stderr do pipewire silenciado; mpv fala pelo log_handler, não pelo terminal."""
+    monkeypatch.setattr(player_mod.mpv, "MPV", _FakeMpv)
+    monkeypatch.delenv("PIPEWIRE_DEBUG", raising=False)
+
+    p = MPVPlayer()
+    try:
+        p._ensure_mpv_started()
+
+        assert p._mpv is not None
+        assert p._mpv.kwargs["terminal"] is False
+        assert p._mpv.kwargs["loglevel"] == "warn"
+        assert callable(p._mpv.kwargs["log_handler"])
+        assert os.environ["PIPEWIRE_DEBUG"] == "0"
+    finally:
+        p.shutdown()
+
+
+def test_ensure_mpv_started_keeps_user_pipewire_debug(monkeypatch):
+    """Q19: quem já definiu PIPEWIRE_DEBUG manda — o app não sobrescreve."""
+    monkeypatch.setattr(player_mod.mpv, "MPV", _FakeMpv)
+    monkeypatch.setenv("PIPEWIRE_DEBUG", "3")
+
+    p = MPVPlayer()
+    try:
+        p._ensure_mpv_started()
+        assert os.environ["PIPEWIRE_DEBUG"] == "3"
+    finally:
+        p.shutdown()
 
 
 # ===== Lifecycle explícito do mpv (T06-R3 · §8.2) =====

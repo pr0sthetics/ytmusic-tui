@@ -3,6 +3,8 @@
 import contextlib
 import locale
 import logging
+import os
+import re
 import shutil
 import sys
 import time
@@ -16,8 +18,31 @@ import mpv
 
 from ytmusic_tui.config import settings
 from ytmusic_tui.diagnostics import mask_diagnostics
+from ytmusic_tui.log import log_event
 
 logger = logging.getLogger(__name__)
+
+# Níveis do python-mpv (strings) → níveis da biblioteca padrão.
+_MPV_LOG_LEVELS = {
+    "fatal": logging.CRITICAL,
+    "error": logging.ERROR,
+    "warn": logging.WARNING,
+}
+
+# Q19/T16: ruído benigno conhecido do mpv/libpipewire. O libpipewire grava os
+# avisos de configuração (client.conf ausente) direto no stderr do processo —
+# fora do log do mpv —, mas se algum dia passarem pelo log_handler não podem
+# virar evento (relato de campo no WSL; reproduzido localmente com config dir
+# vazio: "[W][...] pw.conf | [conf.c: 1182 try_load_conf()] can't load config
+# client.conf..."). O critério é por token porque é assim que o libpipewire se
+# identifica — erros reais do player (ex.: "Failed to initialize audio
+# driver") não casam.
+_BENIGN_MPV_NOISE = re.compile(r"pw\.conf|conf\.c:\s*\d+|client\.conf", re.IGNORECASE)
+
+
+def _is_benign_mpv_noise(prefix: str, text: str) -> bool:
+    """True quando a mensagem do mpv é ruído benigno conhecido (Q19/T16)."""
+    return bool(_BENIGN_MPV_NOISE.search(f"{prefix} {text}"))
 
 
 def _as_text(value: Any) -> str:
@@ -103,6 +128,9 @@ class MPVPlayer:
             "force_window": False,
             "keep_open": True,
             "idle": True,
+            # Q19/T16: mensagens do mpv vão para o log interno (log_handler),
+            # nunca direto no terminal — nada de texto cru por cima da TUI.
+            "terminal": False,
         }
 
         # O hook ytdl do mpv usa por padrão um youtube-dl embutido e
@@ -123,17 +151,42 @@ class MPVPlayer:
                 Path(sys.executable).parent,
             )
 
+        # Q19/T16: o libpipewire grava os avisos de config (client.conf
+        # ausente) direto no stderr do processo — fora do log do mpv e por
+        # cima da TUI (relato de campo no WSL; reproduzido localmente com
+        # PIPEWIRE_CONFIG_DIR vazio). PIPEWIRE_DEBUG=0 silencia a biblioteca;
+        # quem já definiu o seu valor manda (setdefault).
+        os.environ.setdefault("PIPEWIRE_DEBUG", "0")
+
         # IMPORTANTE: o ytmusicapi muda o locale (LC_ALL) para en_US.UTF-8 no
         # construtor do YTMusic. O libmpv exige LC_NUMERIC="C" — qualquer outro
         # locale (ex.: vírgula decimal) faz o mpv abortar com segfault ao criar
         # o handle (observado em ambiente com LANG=en_US.UTF-8).
         locale.setlocale(locale.LC_NUMERIC, "C")
 
-        self._mpv = mpv.MPV(**player_kwargs)
+        self._mpv = mpv.MPV(log_handler=self._on_mpv_log, loglevel="warn", **player_kwargs)
 
         # Configurar observadores
         self._setup_observers()
         self._observers_started = True
+
+    def _on_mpv_log(self, level: str, prefix: str, text: str) -> None:
+        """Registra mensagens do mpv no log interno — sem ruído e sem UI.
+
+        Roda na thread de eventos do libmpv (Q19/T16): só decide e loga —
+        nunca espera a thread da UI. Avisos benignos conhecidos do pipewire
+        não entram; o resto vira evento ``mpv_log`` (mascarado pelo
+        formatter). Erros reais do player seguem aparecendo na UI pelo
+        caminho de eventos de sempre.
+        """
+        if _is_benign_mpv_noise(prefix, text):
+            return
+        log_event(
+            "player",
+            "mpv_log",
+            f"[{prefix}] {text}",
+            level=_MPV_LOG_LEVELS.get(level, logging.INFO),
+        )
 
     def start(self) -> bool:
         """Inicializa o handle do mpv (idempotente) — lifecycle explícito (R3).
