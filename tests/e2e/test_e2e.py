@@ -32,6 +32,7 @@ import time
 from pathlib import Path
 
 import pytest
+from platformdirs import user_config_dir
 
 from ytmusic_tui.download.pipeline import QUARANTINE_DIR_NAME, TMP_DIR_NAME
 
@@ -195,6 +196,20 @@ def _smoke_da_tui_no_pty(venv: Path, env: dict[str, str]) -> None:
             os.waitpid(pid, 0)
 
 
+def _estado_do_config_real() -> tuple[int, int] | None:
+    """Snapshot leve (tamanho + mtime) do ``config.toml`` REAL do usuário.
+
+    Q16/T16: o L4 roda com ``YTMUSIC_CONFIG_DIR`` no tmp — o arquivo real do
+    usuário não pode ser lido nem gravado. Guarda: só metadados, nunca o
+    conteúdo; ``None`` = arquivo ausente (e ausente deve continuar).
+    """
+    caminho = Path(user_config_dir("ytmusic-tui")) / "config.toml"
+    if not caminho.exists():
+        return None
+    st = caminho.stat()
+    return (st.st_size, st.st_mtime_ns)
+
+
 def _conferir_limpeza(tmp: Path) -> None:
     """Nada de resíduo: sem .part, .tmp e quarentena vazios, sem órfãos."""
     music = tmp / "music"
@@ -217,6 +232,7 @@ def _conferir_limpeza(tmp: Path) -> None:
 def test_fluxo_ponta_a_ponta_com_instalacao_limpa(tmp_path):
     """Build → venv limpo → doctor → fluxo real → TUI no pty → limpeza."""
     env = _ambiente_isolado(tmp_path)
+    config_real_antes = _estado_do_config_real()
     wheel = _build_wheel(tmp_path)
     venv = _criar_venv(tmp_path)
     _rodar(
@@ -255,3 +271,8 @@ def test_fluxo_ponta_a_ponta_com_instalacao_limpa(tmp_path):
     _conferir_resultado(tmp_path, resumo)
     _smoke_da_tui_no_pty(venv, env)
     _conferir_limpeza(tmp_path)
+
+    assert _estado_do_config_real() == config_real_antes, (
+        "Q16: o config.toml real do usuário mudou durante o L4 — "
+        "o isolamento por YTMUSIC_CONFIG_DIR vazou"
+    )

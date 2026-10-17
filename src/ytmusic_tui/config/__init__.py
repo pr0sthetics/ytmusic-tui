@@ -22,6 +22,27 @@ from ytmusic_tui.permissions import secure_directory, secure_file
 # (config_dir é uma das configurações carregadas do próprio arquivo).
 DEFAULT_CONFIG_FILE = Path(user_config_dir("ytmusic-tui")) / "config.toml"
 
+
+def _resolve_toml_file(settings_cls: type[BaseSettings]) -> Path:
+    """Arquivo TOML em vigor para LER e GRAVAR a configuração.
+
+    Prioridade (T16/Q16):
+
+    1. um ``toml_file`` fixado pela própria classe (subclasses de teste);
+    2. ``YTMUSIC_CONFIG_DIR`` do ambiente — o TOML acompanha o diretório
+       redirecionado, então o arquivo real do usuário nunca é lido nem
+       gravado fora do diretório de configuração esperado;
+    3. o caminho padrão do usuário (:data:`DEFAULT_CONFIG_FILE`).
+    """
+    configured = settings_cls.model_config.get("toml_file")
+    if configured is not None:
+        return Path(str(configured))
+    env_dir = os.environ.get("YTMUSIC_CONFIG_DIR")
+    if env_dir:
+        return Path(os.path.expanduser(env_dir)) / "config.toml"
+    return DEFAULT_CONFIG_FILE
+
+
 # Faixa aceita de downloads simultâneos (T06-R4). A validação vive aqui
 # (pydantic, para TOML/ambiente) e o gerenciador recusa valores fora dela —
 # nenhum ponto ajusta em silêncio. Quem normaliza para o usuário é a UI.
@@ -45,7 +66,6 @@ class Settings(BaseSettings):
         env_prefix="YTMUSIC_",
         case_sensitive=False,
         extra="ignore",
-        toml_file=DEFAULT_CONFIG_FILE,
     )
 
     @classmethod
@@ -62,13 +82,17 @@ class Settings(BaseSettings):
         Ordem (maior prioridade primeiro):
         1. Valores passados no construtor
         2. Variáveis de ambiente (YTMUSIC_*)
-        3. Arquivo TOML (~/.config/ytmusic-tui/config.toml)
+        3. Arquivo TOML em vigor — ``_resolve_toml_file``: ``YTMUSIC_CONFIG_DIR``
+           quando definido, senão ``~/.config/ytmusic-tui/config.toml``
         4. Secrets de arquivos
         """
+        toml_source = TomlConfigSettingsSource(
+            settings_cls, toml_file=_resolve_toml_file(settings_cls)
+        )
         return (
             init_settings,
             env_settings,
-            TomlConfigSettingsSource(settings_cls),
+            toml_source,
             file_secret_settings,
         )
 
@@ -183,10 +207,10 @@ class Settings(BaseSettings):
         """Reescreve o TOML aplicando as atualizações."""
         import tomllib
 
-        # ``model_config`` é um TypedDict: o valor de ``toml_file`` pode ser
-        # Path ou str, então normalizamos antes de usar.
-        configured = self.model_config.get("toml_file")
-        path = Path(str(configured)) if configured else DEFAULT_CONFIG_FILE
+        # O caminho NUNCA sai do diretório de configuração esperado
+        # (T16/Q16): classe fixou um ``toml_file`` (testes) >
+        # ``YTMUSIC_CONFIG_DIR`` > caminho padrão do usuário.
+        path = _resolve_toml_file(type(self))
         data: dict[str, Any] = {}
         if path.exists():
             try:
