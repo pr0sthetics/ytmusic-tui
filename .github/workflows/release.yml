@@ -1,0 +1,247 @@
+name: Release
+
+# T16-R2: publica a release de uma tag JÁ autorizada (v* anotada) — este
+# workflow não cria tag, não decide versão e não roda no CI normal.
+#
+# Disparo normal: `git push origin vX.Y.Z` (a auditoria executa a release
+# com autorização; ver docs/release.md). `workflow_dispatch` re-executa o
+# processo para uma tag existente — útil quando a verificação do publicado
+# falhou: a Release fica em RASCUNHO até passar, então nada quebrado fica
+# público e a re-execução conserta.
+#
+# Sem testes de rede aqui (L3/L4 são do runbook local); zero ação de
+# terceiros nova — mesmos pins do ci.yml.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag existente para publicar/repetir (ex.: v0.1.5)"
+        required: true
+        type: string
+
+# Permissões mínimas: leitura por padrão; só o job de publicação pede
+# contents: write (criar/editar Release e anexar artefatos).
+permissions:
+  contents: read
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    # Normal ~5-8 min; teto para falhar com diagnóstico (padrão do T14-R5).
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Resolver a tag (push ou dispatch) e validar o formato
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag inválida: '$TAG' (esperado vX.Y.Z)"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Publicando ${TAG} (evento: ${GITHUB_EVENT_NAME})"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Correspondência tag ↔ commit ↔ versão (pacote, __version__, lock)
+        id: fonte
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          SHA="$(git rev-parse HEAD)"
+          TAG_SHA="$(git rev-parse "${TAG}^{commit}")"
+          if [ "$SHA" != "$TAG_SHA" ]; then
+            echo "::error::o commit do checkout ($SHA) não é o da tag ${TAG} ($TAG_SHA)"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          python3 - "$VERSION" <<'PY'
+          import pathlib
+          import re
+          import sys
+          import tomllib
+
+          version = sys.argv[1]
+          erros = []
+
+          pyproject = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          if pyproject["project"]["version"] != version:
+              erros.append(f"pyproject.toml={pyproject['project']['version']}")
+
+          init_txt = pathlib.Path("src/ytmusic_tui/__init__.py").read_text(encoding="utf-8")
+          encontrado = re.search(r'^__version__\s*=\s*"([^"]+)"', init_txt, re.MULTILINE)
+          if not encontrado or encontrado.group(1) != version:
+              erros.append(f"__version__={encontrado.group(1) if encontrado else 'ausente'}")
+
+          lock = tomllib.loads(pathlib.Path("uv.lock").read_text(encoding="utf-8"))
+          do_lock = [p.get("version") for p in lock.get("package", []) if p.get("name") == "ytmusic-tui"]
+          if not do_lock or do_lock[0] != version:
+              erros.append(f"uv.lock={do_lock or 'ausente'}")
+
+          if erros:
+              print("::error::versão divergente da tag: " + "; ".join(erros))
+              sys.exit(1)
+          print(f"pacote, __version__, uv.lock e tag batem: {version}")
+          PY
+
+      # O commit da tag precisa ter CI verde: a release publica um commit
+      # testado, não um qualquer. Consulta ao vivo via gh api (validada na
+      # auditoria do T16); "todas as execuções do ci.yml no commit" precisam
+      # estar concluídas com sucesso — re-execução bem-sucedida consta como
+      # sucesso no mesmo run, então o critério é estável.
+      - name: Guarda de CI verde no commit da tag
+        env:
+          SHA: ${{ steps.fonte.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ESTADO="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&per_page=100" \
+            --jq 'if (.workflow_runs | length) == 0 then "nenhuma-execução"
+                  elif ([.workflow_runs[] | select(.status != "completed" or .conclusion != "success")] | length) > 0 then "pendente-ou-vermelha"
+                  else "ok" end')"
+          if [ "$ESTADO" != "ok" ]; then
+            echo "::error::CI do commit ${SHA} não está verde (${ESTADO}); release abortada"
+            exit 1
+          fi
+          echo "CI verde para ${SHA}"
+
+      - uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Build limpo (uv build no commit da tag)
+        run: |
+          set -euo pipefail
+          uv build
+          ls -l dist/
+
+      - name: Conferir artefatos e conteúdo (app.tcss) antes de anexar
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -f "dist/ytmusic_tui-${VERSION}-py3-none-any.whl"
+          test -f "dist/ytmusic_tui-${VERSION}.tar.gz"
+          unzip -l dist/*.whl | grep -q 'ytmusic_tui/tui/app.tcss'
+          tar tzf dist/*.tar.gz | grep -q 'ytmusic_tui/tui/app.tcss'
+
+      - name: Hashes SHA-256
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ytmusic_tui-*.whl ytmusic_tui-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      # Notas = seção do CHANGELOG da versão (GQ-14: commit e hashes
+      # rastreáveis). Se a seção não existir, a release FALHA — melhor não
+      # publicar do que publicar notas erradas.
+      - name: Notas da release (seção do CHANGELOG + commit + hashes)
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          SHA: ${{ steps.fonte.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+          import sys
+
+          version = os.environ["VERSION"]
+          sha = os.environ["SHA"]
+          changelog = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+          secao = re.search(
+              rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              changelog,
+              re.MULTILINE | re.DOTALL,
+          )
+          if not secao:
+              print(f"::error::CHANGELOG.md sem a seção [{version}] — release abortada")
+              sys.exit(1)
+          hashes = pathlib.Path("dist/SHA256SUMS").read_text(encoding="utf-8").strip()
+          notas = (
+              secao.group(1).strip()
+              + "\n\n---\n\n"
+              + f"**Commit da release:** `{sha}`\n\n"
+              + "**SHA-256:**\n\n```\n" + hashes + "\n```\n"
+          )
+          pathlib.Path("RELEASE_NOTES.md").write_text(notas, encoding="utf-8")
+          print(notas)
+          PY
+
+      - name: Dependências de sistema (mpv + libmpv + ffmpeg para o doctor)
+        run: sudo apt-get update && sudo apt-get install -y mpv libmpv-dev ffmpeg
+
+      # Rascunho até a verificação passar: se algo falhar, nada quebrado
+      # fica público. Re-execução atualiza assets/notas (clobber).
+      - name: Criar/atualizar a Release com os artefatos
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS --clobber
+            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+          else
+            gh release create "$TAG" \
+              dist/*.whl dist/*.tar.gz dist/SHA256SUMS \
+              --title "$TAG" \
+              --notes-file RELEASE_NOTES.md \
+              --draft
+          fi
+
+      # Verificação do PUBLICADO: baixa de volta do Release (rascunho também
+      # baixa), confere os hashes e instala wheel E sdist em venvs limpos —
+      # `--version` prova a versão instalada e `doctor` o ambiente.
+      - name: Verificação do publicado (baixar, instalar em venv limpo, smoke)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf verificacao venv-verificacao-wheel venv-verificacao-sdist
+          mkdir verificacao
+          gh release download "$TAG" \
+            --pattern '*.whl' --pattern '*.tar.gz' --pattern SHA256SUMS \
+            --dir verificacao
+          (cd verificacao && sha256sum --check SHA256SUMS)
+          python3 -m venv venv-verificacao-wheel
+          venv-verificacao-wheel/bin/pip install --quiet --disable-pip-version-check verificacao/*.whl
+          venv-verificacao-wheel/bin/ytmusic-tui --version | grep -F "$VERSION"
+          venv-verificacao-wheel/bin/python -m ytmusic_tui --version | grep -F "$VERSION"
+          venv-verificacao-wheel/bin/ytmusic-tui doctor
+          python3 -m venv venv-verificacao-sdist
+          venv-verificacao-sdist/bin/pip install --quiet --disable-pip-version-check verificacao/*.tar.gz
+          venv-verificacao-sdist/bin/ytmusic-tui --version | grep -F "$VERSION"
+          venv-verificacao-sdist/bin/ytmusic-tui doctor
+
+      - name: Publicar (sai do rascunho) somente após a verificação
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+            gh release edit "$TAG" --draft=false
+            echo "Release $TAG publicada."
+          else
+            echo "Release $TAG já estava publicada (re-execução): nada a fazer."
+          fi
