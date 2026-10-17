@@ -83,8 +83,9 @@ YTMUSIC_INTEGRATION=1 .venv/bin/python -m pytest tests/test_integration.py -v -s
 YTMUSIC_E2E=1 .venv/bin/python -m pytest tests/e2e -v -s                          # L4 (build + venv limpo + fluxo + TUI no pty)
 ```
 
-Referências do T09: L3 = **3 passed** (~6 s); L4 = **1 passed** (~67 s),
-mais o tempo de build/venv. Registre as saídas exatas no relatório da
+Referências: L3 = **3 passed** em ~6 s (T09; no T16: 6,04 s); L4 = **1
+passed** (T09: 66,86 s; no T16: 36,74 s) — o teste inclui build + venv
+limpo + fluxo + TUI no pty. Registre as saídas exatas no relatório da
 release. O L4 é onde o isolamento de configuração é guardado (o
 `config.toml` real do usuário não pode mudar — guarda do próprio teste).
 Se uma rodada falhar em passo de rede, aplique a regra da **Q17**
