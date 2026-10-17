@@ -192,15 +192,21 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y mpv libmpv-dev ffmpeg
 
       # Rascunho até a verificação passar: se algo falhar, nada quebrado
-      # fica público. Re-execução atualiza assets/notas (clobber).
+      # fica público. Re-execução conserta rascunho (assets/notas atualizados
+      # com clobber); release JÁ publicada não é tocada — segue só para a
+      # verificação (artefatos públicos são preservados).
       - name: Criar/atualizar a Release com os artefatos
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS --clobber
-            gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "true" ]; then
+              gh release upload "$TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS --clobber
+              gh release edit "$TAG" --notes-file RELEASE_NOTES.md
+            else
+              echo "Release $TAG já publicada: artefatos preservados (sem clobber)."
+            fi
           else
             gh release create "$TAG" \
               dist/*.whl dist/*.tar.gz dist/SHA256SUMS \
