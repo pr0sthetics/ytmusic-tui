@@ -1,16 +1,16 @@
 # 🎧 YouTube Music TUI
 
-A **minimalist, fast and lightweight TUI client** for YouTube Music, right in your terminal: search, playback (mpv), music and album downloads (yt-dlp + ffmpeg) and a local library — **no Google account needed**.
+A **minimalist, fast and lightweight TUI client** for YouTube Music, right in your terminal: search, playback (mpv), music and album downloads (yt-dlp + ffmpeg), a local library and local playlists — **no Google account needed**.
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-554%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-585%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
 > ## 🤖 AI-native, human-verified
 >
-> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **554 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **585 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -21,7 +21,8 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 - 🔍 **Search** for songs (25) and albums (15) in parallel, with type and year on albums (`💿 My Dear Melancholy, — The Weeknd  (EP, 2018)`)
 - 💿 **Album tab**: open an album from the search and see tracks, artist and year — `Enter` plays (with a continuous queue) and `A` downloads the whole album, **skipping tracks already downloaded**
 - 📥 **Download** via yt-dlp + ffmpeg: best stream available → MP3 320 kbps (or opus/m4a/flac), with ID3 tags and **embedded cover art**
-- 📚 **Local library** in SQLite (no cloud): downloaded tracks, local likes and playback from the local file
+- 📚 **Local library** in SQLite (no cloud): downloaded tracks organized **by album** (plus a "standalone tracks" section), local likes and playback from the local file
+- 🎵 **Local playlists** in SQLite: create, rename and delete (with confirmation), add a track or a whole album from the library, reorder and play **in order**
 - 📊 **Downloads** tab with real-time progress and configurable simultaneous downloads
 - 🚫 **No login**: search, playback and download all operate anonymously
 - ⌨️ Responsive **Textual** interface, with mouse support (tabs, lists, buttons) and vim-style shortcuts
@@ -33,7 +34,7 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ```text
  ⭘                                      YouTube Music TUI                                  04:43:20
-  🏠 Início    🔍 Busca    📚 Biblioteca    📥 Downloads    ⚙️ Config
+  🎵 Playlists  🔍 Busca    📚 Biblioteca    📥 Downloads    ⚙️ Config
 ━━━━━━━━━━━━━━╸━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
  ┌────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -72,7 +73,7 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ```text
  ⭘                                      YouTube Music TUI                                  04:43:21
-  🏠 Início    🔍 Busca    💿 My Dear Melancholy    📚 Biblioteca    📥 Downloads    ⚙️ Config
+  🎵 Playlists  🔍 Busca    💿 My Dear Melancholy    📚 Biblioteca    📥 Downloads    ⚙️ Config
 ━━━━━━━━━━━━━━━━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━╺━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
  💿 My Dear Melancholy, — The Weeknd · 2018 · 6 faixas
@@ -280,19 +281,26 @@ python main.py           # straight from the source tree (uses src/, no install)
 2. `Enter` on a song plays it; `→` / `←` move through the queue
 3. `Enter` on an album opens the 💿 tab with its tracks; `A` (or the button) downloads the whole album
 4. `Ctrl+D` downloads the track now playing — follow it on the 📥 Downloads tab
-5. `Ctrl+L` opens the local library: play straight from the downloaded files
+5. `Ctrl+L` opens the local library — now **by album**: `Enter` expands an album (tracks in order; `t` plays it), `p` adds the selected track and `Shift+P` adds the whole album to a playlist
+6. The 🎵 **Playlists** tab (the first one) lists your local playlists: `Enter` opens one (tracks in position order; `Enter` plays with the queue following the playlist), `N` creates, `E` renames, `Delete` deletes with confirmation; inside a playlist, `Shift+↑`/`Shift+↓` reorder and `Delete` removes a track
 
 ### Keyboard shortcuts
 
 | Key | Action |
 |-------|------|
 | `Ctrl+S` | Go to the search |
-| `Enter` | Play track / open selected album |
+| `Enter` | Play track / open selected album; library: expand album; playlists: open playlist |
 | `Space` | Play/Pause |
-| `→` / `←` | Next / previous |
+| `→` / `←` | Next / previous (inside a library album or an open playlist, `←` goes back one level) |
 | `Ctrl+D` | Download the track now playing |
 | `A` | Download the whole album (album tab) |
-| `Esc` | Back from the album to the search |
+| `T` | Play the open album from the library |
+| `P` | Add the selected library track (or the current track) to a playlist |
+| `Shift+P` | Add the open library album to a playlist |
+| `N` / `E` | Playlists: new / rename |
+| `Delete` | Delete the selected playlist (with confirmation); inside a playlist, remove the selected track |
+| `Shift+↑` / `Shift+↓` | Move the selected track inside an open playlist |
+| `Esc` | Back from the album to the search; back one level in the library/playlist |
 | `L` | Like / unlike (local, for downloaded tracks) |
 | `Ctrl+L` | Go to the library |
 | `F1` | Help |
@@ -383,7 +391,7 @@ than the app).
 - **[ytmusicapi](https://github.com/sigma67/ytmusicapi)** (unofficial) in **anonymous mode** for search and metadata — the search fires requests in parallel and takes ~2s
 - **[mpv](https://mpv.io/)** (via libmpv/python-mpv) plays the streams; mpv uses the **yt-dlp installed alongside the app** as its extractor (`ytdl_hook-ytdl_path`), so playback follows the up-to-date yt-dlp instead of mpv's old built-in extractor
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp) + ffmpeg** download the best audio stream and convert it to the configured format, with cover art and tags
-- **SQLAlchemy + SQLite** hold the local library (downloaded tracks, likes)
+- **SQLAlchemy + SQLite** hold the local library (downloaded tracks, likes, local playlists)
 
 > **Why no login?** Google turned off ytmusicapi's OAuth authentication in 2025 — tokens started being rejected with HTTP 400 ([sigma67/ytmusicapi#813](https://github.com/sigma67/ytmusicapi/issues/813)). Since search, playback and download work anonymously, this client chose to operate **without an account**: no synchronization, everything local.
 >
@@ -392,13 +400,12 @@ than the app).
 ## ⚠️ Limitations
 
 **Account and library:**
-- No login: likes, playlists and recommendations **from your account** don't show up; the `L` "like" is **local** and only works for tracks already downloaded
+- No login: likes, **account** playlists and recommendations don't show up; the `L` "like" is **local** and only works for tracks already downloaded — the playlists in the 🎵 tab are local too (they live in your `library.db`)
 - There's no synchronization with YouTube Music — the library lives only in your `library.db`
 
 **Search and catalog:**
 - Up to **25 songs + 15 albums** per query
 - No advanced filters (search by artist, playlist, sorting etc.)
-- Playlists are not supported yet (see the Roadmap)
 
 **Downloads and quality:**
 - The real quality depends on the source: YouTube Music typically serves **~128–256 kbps** audio (AAC/Opus); the "MP3 320" is a conversion — it doesn't create quality, but it standardizes the files
@@ -406,7 +413,7 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **AI-native, human-verified** (note at the top): the 554 tests cover the main flow, but the occasional bug is expected
+- **AI-native, human-verified** (note at the top): the 585 tests cover the main flow, but the occasional bug is expected
 - No MPRIS, lyrics, equalizer, automatic radio or themes (Roadmap)
 
 ## 🆘 When something breaks (and it's not the app)
@@ -467,8 +474,8 @@ ytmusic-tui/
 │       ├── app.py             # App lifecycle + main() (app.tcss next to it)
 │       ├── screens.py         # MainScreen: tabs, shortcuts and navigation
 │       ├── widgets.py         # Custom widgets (lists, player bar)
-│       └── *_controller.py    # Playback, downloads and library (mixins)
-└── tests/                     # 554 tests in layers (L1 mocks + L2 local) + opt-in integration
+│       └── *_controller.py    # Playback, downloads, library and playlists (mixins)
+└── tests/                     # 585 tests in layers (L1 mocks + L2 local) + opt-in integration
 ```
 
 ## 🤖 Development methodology & AI stack
@@ -547,7 +554,6 @@ Looking to update a **local installation** (pipx/pip), pin an older version or u
 
 ## 🗺️ Roadmap
 
-- [ ] Local playlists
 - [ ] Automatic radio/mix (infinite autoplay)
 - [ ] Synced lyrics
 - [ ] MPRIS control (desktop integration)

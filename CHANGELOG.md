@@ -6,6 +6,40 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Adicionado
+
+- Playlists locais (T17.1): a aba 🎵 **Playlists** substitui a antiga 🏠
+  Início — o app agora abre na 🔍 Busca. A lista mostra `nome · N faixas`,
+  `Enter` abre a playlist (faixas na ordem de posição) e `Enter` numa faixa
+  toca com a fila na ordem da playlist; `N` cria (modal de nome), `E`
+  renomeia, `Delete` exclui com confirmação, `Shift+↑`/`Shift+↓` movem a
+  faixa e `Delete` no detalhe a remove — a reordenação usa uma transação só.
+  Falha de leitura tem mensagem própria (nunca parece "nenhuma playlist") e
+  os estados vazio/carregando/erro passam por worker + época
+- Adicionar à playlist (T17.1): `P` adiciona a faixa selecionada na
+  Biblioteca (avulsa ou dentro do álbum) — ou, fora dela, a faixa em
+  reprodução, espelho do `L` — por um seletor com "➕ Nova playlist…" que
+  cria e já adiciona; `Shift+P` adiciona o álbum aberto inteiro. Repetida
+  não duplica ("já estava") e o recado do álbum é o que aconteceu de fato:
+  "N adicionadas · M já estavam · K fora da biblioteca (baixe para
+  incluí-las)", com K apenas quando o `track_count` do álbum é conhecido;
+  nada a adicionar tem mensagem própria, e faixa fora da biblioteca local
+  pede o download primeiro
+- Biblioteca por álbum (T17.1): o nível 1 lista álbuns
+  (`💿 Título — Artista  (N faixas)`, com `⚠ N ausentes` quando há) e a
+  seção "— Faixas avulsas —"; `Enter` expande o álbum dentro da própria
+  aba (cabeçalho com título/artista/ano/contagem, faixas em ordem de
+  disco/número, `t` toca o álbum com a fila em ordem e `Esc`/`←` voltam ao
+  nível 1). Arquivo não encontrado na última reconciliação aparece marcado
+  (⚠) por faixa — na biblioteca e nas playlists — com legenda, e tocar uma
+  faixa ausente avisa sem travar
+- Downloads (T17.1/Q13b): quando o arquivo já baixado é encontrado no
+  disco, o desfecho aparece na tabela ("Já existia") e o toast é próprio
+  ("validado e registrado sem baixar") — o arquivo existente nunca é
+  sobrescrito, e agora isso fica visível
+- Testes: 585 no total (era 554) — novos cenários de playlists, biblioteca
+  por álbum, ausências, desfecho de download e regressão do encerramento
+
 ### Alterado
 
 - README: destaque de leveza ganhou números — com o app recém-iniciado na
@@ -22,6 +56,10 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ### Corrigido
 
+- Encerramento (Q20): eventos de player enfileirados durante o teardown
+  podiam derrubar o app com `NoMatches` na barra "tocando agora" (o flake
+  do T16); agora são descartados assim que o app começa a parar e a barra
+  usa busca tolerante — com teste de regressão do caso
 - Workflow de release: a conferência do conteúdo dos artefatos não usa mais
   `… | grep -q` (o `grep` sai no primeiro match e o produtor — `unzip`/`tar`
   — morria com SIGPIPE; sob `pipefail`, o step caía). Pego no primeiro uso
