@@ -107,6 +107,13 @@ class DownloadTask:
     album: str = ""
     thumbnail_url: str = ""
     track_id: int = 0  # ID na biblioteca local
+    # Ordem na listagem do álbum (T17.1/R2): 1-based; None = desconhecida.
+    # Vivem só em memória — o espelho persistido do T04 não guarda ordem
+    # (sem migração de esquema); a retomada os perde e recai em added_at.
+    track_number: int | None = None
+    disc_number: int | None = None
+    # Total de faixas do álbum quando conhecido (R2/R5): vira Album.track_count.
+    album_track_count: int | None = None
     # Identificador estável da tarefa (T02-R1): o log e a recuperação (T04)
     # correlacionam eventos por ele; retentativa gera novo id.
     id: str = field(default_factory=lambda: f"task-{uuid4().hex[:12]}")
@@ -153,4 +160,8 @@ class DownloadTask:
             thumbnail_url=self.thumbnail_url,
             track_id=self.track_id,
             retry_of=self.id,
+            # A posição no álbum não muda entre tentativas (T17.1/R2).
+            track_number=self.track_number,
+            disc_number=self.disc_number,
+            album_track_count=self.album_track_count,
         )

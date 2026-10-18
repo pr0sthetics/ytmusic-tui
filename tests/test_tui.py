@@ -509,7 +509,8 @@ async def test_download_album_queues_tracks_and_skips_downloaded(monkeypatch):
         screen = app.screen
 
         queued: list[dict] = []
-        monkeypatch.setattr(library, "ensure_track", lambda **kwargs: 1)
+        ensures: list[dict] = []
+        monkeypatch.setattr(library, "ensure_track", lambda **kwargs: ensures.append(kwargs) or 1)
         monkeypatch.setattr(library, "get_track_by_source_id", lambda video_id: None)
         monkeypatch.setattr(
             download_manager,
@@ -533,6 +534,11 @@ async def test_download_album_queues_tracks_and_skips_downloaded(monkeypatch):
         await pilot.pause()
         assert [q["video_id"] for q in queued] == ["t1", "t2"]
         assert all(q["album"] == "Álbum Teste" for q in queued)
+        # Ordem de álbum (R2/T17.1): número 1-based e total conhecido juntos.
+        assert [q["track_number"] for q in queued] == [1, 2]
+        assert all(q["album_track_count"] == 2 for q in queued)
+        assert [entry["track_number"] for entry in ensures] == [1, 2]
+        assert all(entry["album_track_count"] == 2 for entry in ensures)
         assert any("2 faixa(s) enfileirada(s)" in t for t in toasts)
 
         # Tecla "a" (com foco na lista, fora de um Input), pulando a t1
@@ -545,10 +551,12 @@ async def test_download_album_queues_tracks_and_skips_downloaded(monkeypatch):
             lambda video_id: _Downloaded() if video_id == "t1" else None,
         )
         queued.clear()
+        ensures.clear()
         screen.query_one("#album-songs", SongListView).focus()
         await pilot.press("a")
         await pilot.pause()
         assert [q["video_id"] for q in queued] == ["t2"]
+        assert [q["track_number"] for q in queued] == [2]
         assert any("1 já baixada(s)" in t for t in toasts)
 
         # Sem álbum aberto: avisa e não enfileira nada

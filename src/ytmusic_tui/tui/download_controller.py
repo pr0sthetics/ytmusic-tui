@@ -225,17 +225,26 @@ class DownloadController:
         T12-R3 (inventário): as consultas de ``library``/``ensure_track`` por
         faixa são SQLite local, limitadas ao tamanho do álbum (unidades de
         ms no total) — seguem no loop; o download em si roda em worker.
+
+        Ordem de álbum (T17.1/R2): o número 1-based vem da listagem completa
+        do álbum (faixa indisponível pulada não desloca o número das demais)
+        e o total conhecido viaja junto para virar ``Album.track_count``.
         """
-        tracks = [track for track in album.tracks if track.video_id and track.is_available]
-        if not tracks:
+        numbered = [
+            (number, track)
+            for number, track in enumerate(album.tracks, start=1)
+            if track.video_id and track.is_available
+        ]
+        if not numbered:
             self._toast(ALBUM_NO_TRACKS)
             return
 
         album_title = album.title
+        album_total = album.track_count or len(album.tracks) or None
         queued = 0
         skipped = 0
         in_progress = 0
-        for track in tracks:
+        for number, track in numbered:
             info = self._track_info_from_song(track)
             if not info.video_id:
                 continue
@@ -245,7 +254,12 @@ class DownloadController:
             if existing and existing.is_downloaded:
                 skipped += 1
                 continue
-            if self._enqueue_download(info, notify=False):
+            if self._enqueue_download(
+                info,
+                notify=False,
+                track_number=number,
+                album_track_count=album_total,
+            ):
                 queued += 1
             else:
                 in_progress += 1
@@ -259,11 +273,20 @@ class DownloadController:
             parts.append(album_skipped(skipped))
         self._toast(album_queue_summary(album_title, parts))
 
-    def _enqueue_download(self, track: TrackInfo, notify: bool = True) -> bool:
+    def _enqueue_download(
+        self,
+        track: TrackInfo,
+        notify: bool = True,
+        *,
+        track_number: int | None = None,
+        disc_number: int | None = None,
+        album_track_count: int | None = None,
+    ) -> bool:
         """Registra a faixa na biblioteca e enfileira o download.
 
         O registro acontece ANTES do download para que o arquivo final já
-        fique vinculado (aparece na aba Biblioteca).
+        fique vinculado (aparece na aba Biblioteca); a ordem do álbum
+        (T17.1/R2), quando informada, vai junto no registro e na tarefa.
         """
         if not track.video_id:
             return False
@@ -288,6 +311,9 @@ class DownloadController:
             album=track.album,
             thumbnail_url=track.thumbnail_url,
             duration_seconds=int(track.duration or 0),
+            track_number=track_number,
+            disc_number=disc_number,
+            album_track_count=album_track_count,
         )
 
         task = download_manager.queue_download(
@@ -297,6 +323,9 @@ class DownloadController:
             album=track.album or "",
             thumbnail_url=track.thumbnail_url,
             track_id=track_id or 0,
+            track_number=track_number,
+            disc_number=disc_number,
+            album_track_count=album_track_count,
         )
         # Downloads podem ser simultâneos (settings.download_concurrent);
         # sem exclusive=True para não cancelar o worker de outro download.

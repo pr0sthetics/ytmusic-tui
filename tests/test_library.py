@@ -254,6 +254,46 @@ def test_add_album_respeita_posicoes_existentes(library_service):
     assert [entry.track.title for entry in by_position] == ["Antiga", "Do álbum"]
 
 
+def test_ensure_track_grava_ordem_de_album(library_service):
+    """T17.1/R2: números do álbum e contagem de faixas entram na biblioteca."""
+    track_id = library_service.ensure_track(
+        "ORD1",
+        "Segunda",
+        "Artista",
+        "Álbum Ordem 2",
+        track_number=2,
+        disc_number=1,
+        album_track_count=7,
+    )
+    assert track_id is not None
+    track = library_service.get_track(track_id)
+    assert track is not None
+    assert track.track_number == 2
+    assert track.disc_number == 1
+    assert library_service.search_albums("Álbum Ordem 2")[0].track_count == 7
+
+    # Reencontrar a faixa com número novo atualiza; total ausente não regride.
+    again = library_service.ensure_track(
+        "ORD1", "Segunda", "Artista", "Álbum Ordem 2", track_number=5
+    )
+    assert again == track_id
+    updated = library_service.get_track(track_id)
+    assert updated is not None
+    assert updated.track_number == 5
+    assert updated.disc_number == 1
+    assert library_service.search_albums("Álbum Ordem 2")[0].track_count == 7
+
+
+def test_ensure_track_sem_ordem_mantem_padroes(library_service):
+    """T17.1/R2: fluxo individual não regride — sem número, sem total."""
+    track_id = library_service.ensure_track("SOLO1", "Avulsa", "Artista")
+    assert track_id is not None
+    track = library_service.get_track(track_id)
+    assert track is not None
+    assert track.track_number is None
+    assert track.disc_number == 1  # default do modelo (faixa sem disco informado)
+
+
 def test_like_toggle(library_service):
     """Testa toggle de like."""
     with library_service.db.session() as session:

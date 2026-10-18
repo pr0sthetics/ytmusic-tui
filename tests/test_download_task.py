@@ -125,6 +125,7 @@ def test_make_retry_creates_new_task_referencing_previous():
     """Retentativa: id novo, ``retry_of`` apontando para a tentativa anterior."""
     task = _task_in(DownloadStatus.FAILED)
     task.title, task.artist, task.album, task.track_id = "T", "A", "Alb", 7
+    task.track_number, task.disc_number, task.album_track_count = 3, 1, 9
 
     retry = task.make_retry()
 
@@ -138,6 +139,8 @@ def test_make_retry_creates_new_task_referencing_previous():
         "Alb",
         7,
     )
+    # A ordem no álbum sobrevive à retentativa (T17.1/R2).
+    assert (retry.track_number, retry.disc_number, retry.album_track_count) == (3, 1, 9)
     # Abortos independentes: cancelar a retentativa não afeta a original.
     retry.abort_event.set()
     assert not task.abort_event.is_set()

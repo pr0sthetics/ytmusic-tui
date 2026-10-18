@@ -363,6 +363,12 @@ class DownloadManager:
                     artist=task.artist,
                     album=task.album,
                     thumbnail_url=task.thumbnail_url,
+                    # A ordem viajou com a tarefa (T17.1/R2): retomada
+                    # tardia ainda grava a posição quando o download veio
+                    # de um álbum.
+                    track_number=task.track_number,
+                    disc_number=task.disc_number,
+                    album_track_count=task.album_track_count,
                 )
                 or 0
             )
@@ -635,6 +641,9 @@ class DownloadManager:
         album: str = "",
         thumbnail_url: str = "",
         track_id: int = 0,
+        track_number: int | None = None,
+        disc_number: int | None = None,
+        album_track_count: int | None = None,
     ) -> DownloadTask:
         """Adiciona à fila de downloads."""
         task = DownloadTask(
@@ -644,6 +653,9 @@ class DownloadManager:
             album=album,
             thumbnail_url=thumbnail_url,
             track_id=track_id,
+            track_number=track_number,
+            disc_number=disc_number,
+            album_track_count=album_track_count,
         )
         self._queue.append(task)
         # §8.1/T06: destino que resolve fora de download_dir (symlink no

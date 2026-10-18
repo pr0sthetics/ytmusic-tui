@@ -884,6 +884,33 @@ def test_existing_invalid_file_fails_without_overwrite(manager, monkeypatch, tmp
     assert final.exists() and final.stat().st_size == 0  # intocado
 
 
+def test_ordem_de_album_viaja_na_tarefa_e_no_registro(manager, monkeypatch, tmp_path):
+    """T17.1/R2: número/disco/total vão da tarefa para o registro na biblioteca."""
+    ensures: list[dict] = []
+    monkeypatch.setattr(download_mod.library, "ensure_track", lambda **kw: ensures.append(kw) or 7)
+    monkeypatch.setattr(download_mod.library, "update_track_file", lambda *args, **kw: None)
+
+    task = manager.queue_download(
+        video_id="vid-ordem",
+        title="T",
+        artist="A",
+        album="Alb",
+        track_number=3,
+        disc_number=1,
+        album_track_count=9,
+    )
+    assert (task.track_number, task.disc_number, task.album_track_count) == (3, 1, 9)
+
+    # Tarefa sem track_id (recuperação tardia): o registro já grava a ordem.
+    final = tmp_path / "ordem.mp3"
+    final.write_bytes(b"audio")
+    manager._register_track_file(task, final, bitrate=0)
+
+    assert ensures[0]["track_number"] == 3
+    assert ensures[0]["disc_number"] == 1
+    assert ensures[0]["album_track_count"] == 9
+
+
 def test_second_task_for_same_destination_fails_busy(manager, monkeypatch, tmp_path):
     """§5.4: duas tarefas para o mesmo arquivo — a segunda é recusada (reserva)."""
 

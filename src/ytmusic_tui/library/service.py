@@ -417,12 +417,20 @@ class LibraryService:
         album: str = "",
         thumbnail_url: str = "",
         duration_seconds: int = 0,
+        track_number: int | None = None,
+        disc_number: int | None = None,
+        album_track_count: int | None = None,
     ) -> int | None:
         """Garante que a faixa exista na biblioteca e devolve o ID local.
 
         Usado antes de enfileirar um download: assim o arquivo baixado já
         nasce vinculado a uma faixa da biblioteca. Artistas e álbum
         desconhecidos (sem browseId) recebem IDs locais determinísticos.
+
+        ``track_number``/``disc_number``/``album_track_count`` vêm do fluxo
+        de álbum (T17.1/R2) e gravam a ordem na biblioteca — é o que a
+        aba Álbum (R6) usa para listar as faixas numeradas. Só escrevem
+        quando informados (``None`` não apaga o que já existe).
 
         Faixa, artistas, álbum e vínculos gravam numa transação só (R3/T05):
         falha no meio → rollback completo, nada parcial.
@@ -436,6 +444,10 @@ class LibraryService:
                 duration_seconds=duration_seconds,
                 thumbnail_url=thumbnail_url,
             )
+            if track_number is not None:
+                track.track_number = track_number
+            if disc_number is not None:
+                track.disc_number = disc_number
 
             primary_artist: Artist | None = None
             names = [name.strip() for name in artist.split(",") if name.strip()]
@@ -460,6 +472,10 @@ class LibraryService:
                 self.link_track_album(session, track, alb)
                 if primary_artist:
                     self.link_album_artist(session, alb, primary_artist)
+                # Total do álbum conhecido (R2/R5): 0 também é "desconhecido"
+                # aqui — o contador de sistema do modelo usa 0 como vazio.
+                if album_track_count:
+                    alb.track_count = album_track_count
 
             session.flush()
             return track.id
