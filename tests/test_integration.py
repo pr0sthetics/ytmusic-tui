@@ -80,7 +80,7 @@ def _initialize() -> None:
         )
 
 
-def _raw_search() -> tuple[list, list]:
+def _raw_search() -> tuple[list, list, list]:
     """Resposta crua da busca (sem adaptadores) para o monitor de contrato.
 
     Usa o cliente do transporte de propósito: o contrato é entre o SERVIÇO e
@@ -96,7 +96,11 @@ def _raw_search() -> tuple[list, list]:
         lambda: client.search(QUERY, filter="albums", limit=10),
         context=f'busca "{QUERY}" (álbuns)',
     )
-    return songs, albums
+    videos = _rede(
+        lambda: client.search(QUERY, filter="videos", limit=10),
+        context=f'busca "{QUERY}" (vídeos)',
+    )
+    return songs, albums, videos
 
 
 def _assert_contract(scope, items, consumed, essential) -> None:
@@ -108,21 +112,25 @@ def _assert_contract(scope, items, consumed, essential) -> None:
 
 def test_contrato_e_adaptacao_da_busca_real():
     """A busca real devolve o que os adaptadores consomem — e eles adaptam."""
-    songs, albums = _raw_search()
+    songs, albums, videos = _raw_search()
     _assert_contract("faixa de busca", songs, contract.CONSUMED_TRACK, contract.ESSENTIAL_TRACK)
     _assert_contract("álbum de busca", albums, contract.CONSUMED_ALBUM, contract.ESSENTIAL_ALBUM)
+    # F10: vídeos adaptam por ``track_from_raw`` — o mesmo contrato da faixa.
+    _assert_contract("vídeo de busca", videos, contract.CONSUMED_TRACK, contract.ESSENTIAL_TRACK)
 
-    result = search_result_from_raws(songs, albums)
+    result = search_result_from_raws(songs, albums, videos)
     assert result.tracks, "esperava músicas no resultado"
     assert result.albums, "esperava álbuns no resultado"
+    assert result.videos, "esperava vídeos no resultado (F10)"
     assert all(track.video_id for track in result.tracks)
     assert all(album.browse_id for album in result.albums)
+    assert all(video.video_id for video in result.videos)
 
 
 def test_contrato_e_adaptacao_do_album_real():
     """Abrir um álbum real devolve faixas tocáveis (como na aba 💿 Álbum)."""
-    songs, albums = _raw_search()
-    result = search_result_from_raws(songs, albums)
+    songs, albums, videos = _raw_search()
+    result = search_result_from_raws(songs, albums, videos)
     album = next(
         (item for item in result.albums if "Dear Melancholy" in item.title),
         result.albums[0],
