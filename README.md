@@ -1,6 +1,6 @@
 # 🎧 YouTube Music TUI
 
-A **minimalist, fast TUI client** for YouTube Music, right in your terminal: search, playback (mpv), music and album downloads (yt-dlp + ffmpeg) and a local library — **no Google account needed**.
+A **minimalist, fast and lightweight TUI client** for YouTube Music, right in your terminal: search, playback (mpv), music and album downloads (yt-dlp + ffmpeg) and a local library — **no Google account needed**.
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -25,7 +25,7 @@ A **minimalist, fast TUI client** for YouTube Music, right in your terminal: sea
 - 📊 **Downloads** tab with real-time progress and configurable simultaneous downloads
 - 🚫 **No login**: search, playback and download all operate anonymously
 - ⌨️ Responsive **Textual** interface, with mouse support (tabs, lists, buttons) and vim-style shortcuts
-- ⚡ **Lightweight**: no Electron, no browser — just Python + mpv
+- ⚡ **Lightweight**: no Electron, no browser — just Python + mpv (~90 MB of memory at startup, proportional share; ~125 MB RSS)
 
 ## 📸 Screenshots
 

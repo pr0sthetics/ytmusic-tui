@@ -6,6 +6,13 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Alterado
+
+- README: destaque de leveza ganhou números — com o app recém-iniciado na
+  máquina de referência, ~90 MB de memória (PSS, cota proporcional) e
+  ~125 MB residentes (RSS); a linha de apresentação também menciona
+  "lightweight"
+
 ### Corrigido
 
 - Workflow de release: a conferência do conteúdo dos artefatos não usa mais
