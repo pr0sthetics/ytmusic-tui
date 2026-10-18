@@ -6,6 +6,8 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.2.0] - 2026-10-18
+
 ### Adicionado
 
 - Playlists locais (T17.1): a aba 🎵 **Playlists** substitui a antiga 🏠
