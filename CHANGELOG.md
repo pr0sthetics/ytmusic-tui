@@ -6,6 +6,8 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.1.5] - 2026-10-17
+
 ### Adicionado
 
 - Logs estruturados em JSON Lines (T13): cada linha do log é um objeto
