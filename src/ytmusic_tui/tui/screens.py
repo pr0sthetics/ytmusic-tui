@@ -459,8 +459,10 @@ class MainScreen(
         ``r`` (retomar) e ``d`` (descartar) só existem na aba 📥 Downloads:
         fora dela o atalho fica inativo — uma letra digitada em outro
         contexto não dispara comando de download (nem toast fora de hora).
-        ``t`` (tocar álbum) e ``P`` (álbum → playlist) só valem com um álbum
-        aberto na Biblioteca (R6/R5); ``n``/``e``/``delete``/``shift+↑``/
+        ``t`` (tocar álbum) só vale com um álbum aberto na Biblioteca (R6);
+        ``P`` (álbum → playlist) vale na Biblioteca com o álbum aberto ou
+        destacado, e sem álbum alvo explica o gesto em vez de silenciar
+        (R5/BUG-01); ``n``/``e``/``delete``/``shift+↑``/
         ``shift+↓`` só valem na aba 🎵 Playlists, e renomear/excluir pedem
         uma playlist alvo (R3). ``p`` (adicionar faixa à playlist) existe em
         qualquer aba — espelho do ``l``, que usa a faixa atual fora da
@@ -472,12 +474,21 @@ class MainScreen(
             except Exception:
                 return False
             return bool(tabs.active == "tab-downloads")
-        if action in ("play_album", "add_album_to_playlist"):
+        if action == "play_album":
             try:
                 tabs = self.query_one("#main-tabs", TabbedContent)
             except Exception:
                 return False
             return bool(tabs.active == "tab-library" and self.library_album_open())
+        if action == "add_album_to_playlist":
+            # Alvo: o álbum aberto ou o destacado no nível 1; sem álbum
+            # nenhum a ação roda para explicar o gesto — nunca no-op mudo
+            # (BUG-01 de campo).
+            try:
+                tabs = self.query_one("#main-tabs", TabbedContent)
+            except Exception:
+                return False
+            return bool(tabs.active == "tab-library")
         if action in (
             "new_playlist",
             "rename_playlist",

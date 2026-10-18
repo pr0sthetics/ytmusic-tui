@@ -23,6 +23,7 @@ from ytmusic_tui.tui.dialogs import (
     PlaylistPickerScreen,
 )
 from ytmusic_tui.tui.messages import (
+    ALBUM_PLAYLIST_HINT,
     MISSING_LEGEND_TEXT,
     NO_TRACK_PLAYING,
     PLAYLIST_ADD_FAILED,
@@ -418,10 +419,13 @@ class PlaylistController:
         )
 
     def action_add_album_to_playlist(self) -> None:
-        """P (shift): adiciona a playlist o álbum aberto na Biblioteca (R5)."""
+        """Shift+P: adiciona à playlist o álbum da Biblioteca (aberto ou destacado, R5)."""
         entry = self._selected_library_album()
         if entry is None:
-            return  # check_action já limita ao modo álbum da Biblioteca.
+            # Na Biblioteca a tecla fica ativa mesmo sem alvo: explicar o
+            # gesto é melhor que silêncio (BUG-01 de campo).
+            self._toast(ALBUM_PLAYLIST_HINT)
+            return
         self._open_playlist_picker(
             PLAYLIST_PICKER_TITLE_ALBUM,
             lambda picked: self._pick_into_playlist(

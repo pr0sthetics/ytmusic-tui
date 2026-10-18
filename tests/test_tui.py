@@ -1942,6 +1942,71 @@ async def test_shift_p_album_para_playlist_resumo_honesto(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_shift_p_album_destacado_adiciona_album_inteiro(monkeypatch):
+    """BUG-01: shift+P com o álbum só destacado (sem Enter) adiciona o álbum."""
+    alvo = library.create_playlist("Alvo")
+    for number, title in ((1, "Um"), (2, "Dois")):
+        assert (
+            library.ensure_track(f"BD{number}", title, "Artista", "Destacado", track_number=number)
+            is not None
+        )
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        view.index = 0  # álbum destacado — sem Enter, o álbum não abre
+        await pilot.press("P")
+        await pilot.pause()
+        picker = app.screen
+        assert isinstance(picker, PlaylistPickerScreen)
+        assert "álbum" in str(picker.query_one("#picker-title", Static).render()).lower()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        summary = next(toast for toast in toasts if "Álbum" in toast)
+        assert "2 adicionadas" in summary
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        ordered = sorted(stored.tracks, key=lambda entry: entry.position)
+        assert [entry.track.title for entry in ordered] == ["Um", "Dois"]
+
+
+@pytest.mark.asyncio
+async def test_shift_p_sem_album_alvo_mostra_dica(monkeypatch):
+    """BUG-01: sem álbum alvo, o Shift+P explica o gesto em vez de silenciar."""
+    assert library.ensure_track("AV1", "Avulsa", "Artista") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        view.index = len(view.albums) + 1  # pula a seção "Faixas avulsas"
+        await pilot.press("P")
+        await pilot.pause()
+        assert app.screen is screen  # nenhum seletor abriu
+        assert any("álbum" in toast.lower() for toast in toasts)
+
+
+@pytest.mark.asyncio
 async def test_shift_p_nada_a_adicionar_mensagem_clara(monkeypatch):
     """T17.1/R5: nada a adicionar tem mensagem própria (não é silêncio)."""
     library.create_playlist("Alvo")

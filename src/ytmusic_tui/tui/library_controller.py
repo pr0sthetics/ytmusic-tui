@@ -258,8 +258,19 @@ class LibraryController:
         return self._library_album is not None
 
     def _selected_library_album(self) -> LibraryAlbum | None:
-        """Álbum aberto na Biblioteca (None = nível de álbuns) — alvo do shift+P (R5)."""
-        return self._library_album
+        """Alvo do ``Shift+P`` (R5): o álbum aberto ou, no nível 1, o destacado.
+
+        O álbum aberto tem prioridade (modo álbum); sem ele vale a linha de
+        álbum destacada — destacar e adicionar é o gesto natural de quem não
+        abriu com Enter (BUG-01 de campo: antes isso era um no-op mudo).
+        """
+        if self._library_album is not None:
+            return self._library_album
+        try:
+            view = self.query_one("#library-list", LibraryListView)
+        except Exception:
+            return None
+        return cast("LibraryAlbum | None", view.get_selected_album())
 
     def _selected_library_track(self) -> LibraryTrack | None:
         """Faixa selecionada na Biblioteca agora (avulsa ou dentro do álbum).

@@ -346,6 +346,9 @@ PLAYLIST_PICKER_NEW = "➕ Nova playlist…"
 PLAYLIST_PICKER_EMPTY = "Nenhuma playlist ainda — '➕ Nova playlist…' cria a primeira."
 PLAYLIST_ADD_NEEDS_DOWNLOAD = "Baixe a faixa primeiro (Ctrl+D) para adicioná-la a uma playlist."
 PLAYLIST_ADD_FAILED = "Não foi possível adicionar — a playlist mudou; tente de novo."
+ALBUM_PLAYLIST_HINT = (
+    "Nenhum álbum alvo — destaque um álbum na Biblioteca (ou abra com Enter) e tente de novo."
+)
 
 
 def playlist_track_added(title: str, playlist: str) -> str:

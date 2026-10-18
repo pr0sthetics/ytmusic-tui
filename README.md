@@ -4,13 +4,13 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-585%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-587%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
 > ## 🤖 AI-native, human-verified
 >
-> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **585 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **587 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -281,7 +281,7 @@ python main.py           # straight from the source tree (uses src/, no install)
 2. `Enter` on a song plays it; `→` / `←` move through the queue
 3. `Enter` on an album opens the 💿 tab with its tracks; `A` (or the button) downloads the whole album
 4. `Ctrl+D` downloads the track now playing — follow it on the 📥 Downloads tab
-5. `Ctrl+L` opens the local library — now **by album**: `Enter` expands an album (tracks in order; `t` plays it), `p` adds the selected track and `Shift+P` adds the whole album to a playlist
+5. `Ctrl+L` opens the local library — now **by album**: `Enter` expands an album (tracks in order; `t` plays it), `p` adds the selected track and `Shift+P` adds the whole album (open or just highlighted) to a playlist
 6. The 🎵 **Playlists** tab (the first one) lists your local playlists: `Enter` opens one (tracks in position order; `Enter` plays with the queue following the playlist), `N` creates, `E` renames, `Delete` deletes with confirmation; inside a playlist, `Shift+↑`/`Shift+↓` reorder and `Delete` removes a track
 
 ### Keyboard shortcuts
@@ -296,7 +296,7 @@ python main.py           # straight from the source tree (uses src/, no install)
 | `A` | Download the whole album (album tab) |
 | `T` | Play the open album from the library |
 | `P` | Add the selected library track (or the current track) to a playlist |
-| `Shift+P` | Add the open library album to a playlist |
+| `Shift+P` | Add the open or highlighted library album to a playlist |
 | `N` / `E` | Playlists: new / rename |
 | `Delete` | Delete the selected playlist (with confirmation); inside a playlist, remove the selected track |
 | `Shift+↑` / `Shift+↓` | Move the selected track inside an open playlist |
@@ -413,7 +413,7 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **AI-native, human-verified** (note at the top): the 585 tests cover the main flow, but the occasional bug is expected
+- **AI-native, human-verified** (note at the top): the 587 tests cover the main flow, but the occasional bug is expected
 - No MPRIS, lyrics, equalizer, automatic radio or themes (Roadmap)
 
 ## 🆘 When something breaks (and it's not the app)
@@ -475,7 +475,7 @@ ytmusic-tui/
 │       ├── screens.py         # MainScreen: tabs, shortcuts and navigation
 │       ├── widgets.py         # Custom widgets (lists, player bar)
 │       └── *_controller.py    # Playback, downloads, library and playlists (mixins)
-└── tests/                     # 585 tests in layers (L1 mocks + L2 local) + opt-in integration
+└── tests/                     # 587 tests in layers (L1 mocks + L2 local) + opt-in integration
 ```
 
 ## 🤖 Development methodology & AI stack

@@ -6,6 +6,14 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Corrigido
+
+- `Shift+P` (álbum → playlist) agora funciona também com o álbum apenas
+  **destacado** na Biblioteca — antes só valia com o álbum aberto (Enter)
+  e, fora do modo álbum, a tecla inativa era um silêncio total; sem álbum
+  alvo o app explica o gesto em vez de silenciar (ex.: faixa avulsa
+  destacada)
+
 ## [0.2.0] - 2026-10-18
 
 ### Adicionado
