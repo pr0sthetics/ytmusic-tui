@@ -341,6 +341,47 @@ async def test_search_shows_albums_with_type_marker(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_search_shows_videos_section(monkeypatch):
+    """F10: vídeos ganham seção própria, tocam como áudio e somem quando vazios."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        monkeypatch.setattr(
+            ytmusic,
+            "search_catalog",
+            lambda *args, **kwargs: SearchResult(
+                tracks=(_song("v1", "Música"),),
+                videos=(_song("v2", "Clipe"),),
+            ),
+        )
+
+        await screen.perform_search("clipe teste")
+        await pilot.pause()
+
+        videos = screen.query_one("#search-videos", SongListView)
+        assert videos.display and len(videos.songs) == 1
+        assert videos.songs[0].video_id == "v2"
+        assert screen.query_one("#search-videos-title", Static).display
+
+        # Enter num vídeo toca pelo mesmo fluxo das músicas (fila = seção).
+        played: list[TrackInfo] = []
+        monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+        videos.focus()
+        videos.index = 0
+        await pilot.press("enter")
+        await pilot.pause()
+        assert [info.video_id for info in played] == ["v2"]
+
+        # Sem vídeos, a seção some (como as demais).
+        screen.display_search_results(SearchResult(tracks=(_song("v3", "Só música"),)))
+        await pilot.pause()
+        assert not videos.display
+        assert screen.query_one("#search-songs", SongListView).display
+
+
+@pytest.mark.asyncio
 async def test_selecting_album_opens_tab_with_tracks(monkeypatch):
     """Enter num álbum abre a aba 💿 Álbum com artista e faixas; Esc volta."""
     app = YTMusicTUI()

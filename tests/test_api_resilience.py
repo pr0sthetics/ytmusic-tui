@@ -212,6 +212,7 @@ class _FlakyTransport:
         self.error = error or requests.exceptions.ConnectionError("caiu")
         self.song_calls = 0
         self.album_calls = 0
+        self.videos_calls = 0
 
     def search(self, query, filter=None, limit=None, ignore_spelling=False):
         if filter == "songs":
@@ -219,6 +220,9 @@ class _FlakyTransport:
             if self.song_calls <= self.failures:
                 raise self.error
             return [{"resultType": "song", "videoId": "v1", "title": "ok"}]
+        if filter == "videos":
+            self.videos_calls += 1
+            return [{"resultType": "video", "videoId": "vid1", "title": "ok"}]
         self.album_calls += 1
         return [{"resultType": "album", "browseId": "b1", "title": "ok"}]
 
@@ -238,8 +242,10 @@ def test_search_catalog_transitorio_sucede_na_segunda(monkeypatch):
 
     assert isinstance(result, SearchResult)
     assert [t.video_id for t in result.tracks] == ["v1"]
+    assert [v.video_id for v in result.videos] == ["vid1"]
     assert transport.song_calls == 2
     assert transport.album_calls == 1
+    assert transport.videos_calls == 1
 
 
 def test_search_catalog_abortado_para_de_tentar(monkeypatch):
@@ -252,6 +258,7 @@ def test_search_catalog_abortado_para_de_tentar(monkeypatch):
 
     assert transport.song_calls == 1
     assert transport.album_calls == 1
+    assert transport.videos_calls == 1
 
 
 def test_search_catalog_sem_abort_esgota_o_teto(monkeypatch):
@@ -262,6 +269,7 @@ def test_search_catalog_sem_abort_esgota_o_teto(monkeypatch):
         api.search_catalog("q")
 
     assert transport.song_calls == 3  # teto da política
+    assert transport.videos_calls == 1
 
 
 def test_get_album_re_tenta_transitorio(monkeypatch):

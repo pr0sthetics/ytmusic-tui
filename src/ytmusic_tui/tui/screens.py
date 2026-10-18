@@ -166,6 +166,8 @@ class MainScreen(
                     )
                     yield Static("🎵 Músicas", id="search-songs-title", classes="list-title")
                     yield SongListView(id="search-songs")
+                    yield Static("🎬 Vídeos", id="search-videos-title", classes="list-title")
+                    yield SongListView(id="search-videos")
                     yield Static("💿 Álbuns", id="search-albums-title", classes="list-title")
                     yield AlbumListView(id="search-albums")
 
@@ -267,6 +269,8 @@ class MainScreen(
     def on_mount(self) -> None:
         self.query_one("#search-songs", SongListView).display = False
         self.query_one("#search-songs-title", Static).display = False
+        self.query_one("#search-videos", SongListView).display = False
+        self.query_one("#search-videos-title", Static).display = False
         self.query_one("#search-albums", AlbumListView).display = False
         self.query_one("#search-albums-title", Static).display = False
         self.query_one("#album-songs", SongListView).display = False
@@ -693,7 +697,7 @@ class MainScreen(
     # ===== Busca =====
 
     async def perform_search(self, query: str) -> None:
-        """Executa busca de músicas e álbuns."""
+        """Executa busca de músicas, vídeos e álbuns."""
         if not query.strip():
             return
 
@@ -720,9 +724,10 @@ class MainScreen(
         self._render_search_message(SEARCH_STARTING)
 
         try:
-            # search_catalog: músicas + álbuns em 2 requisições paralelas
-            # (~2s no total, a mesma latência de uma busca só). A busca sem
-            # filtro faria 1 requisição, mas caparia as músicas em ~5 itens.
+            # search_catalog: músicas + vídeos + álbuns em 3 requisições
+            # paralelas (~2s no total, a mesma latência de uma busca só). A
+            # busca sem filtro faria 1 requisição, mas caparia as músicas em
+            # ~5 itens.
             results = await asyncio.to_thread(
                 ytmusic.search_catalog, query, should_abort=abort.is_set
             )
@@ -742,6 +747,8 @@ class MainScreen(
             hidden = [
                 self.query_one("#search-songs", SongListView),
                 self.query_one("#search-songs-title", Static),
+                self.query_one("#search-videos", SongListView),
+                self.query_one("#search-videos-title", Static),
                 self.query_one("#search-albums", AlbumListView),
                 self.query_one("#search-albums-title", Static),
             ]
@@ -755,7 +762,7 @@ class MainScreen(
     def display_search_results(
         self, results: SearchResult | list[Track], epoch: int | None = None
     ) -> None:
-        """Exibe resultados da busca: músicas e álbuns (in-place).
+        """Exibe resultados da busca: músicas, vídeos e álbuns (in-place).
 
         Aceita uma lista de músicas (atalho de teste) ou um ``SearchResult``.
         ``epoch`` (T12-R2): quando informada e não for mais a época corrente,
@@ -767,19 +774,23 @@ class MainScreen(
             )
             return
         if isinstance(results, list):
-            tracks, albums = list(results), []
+            tracks, videos, albums = list(results), [], []
         else:
             tracks = list(results.tracks)
+            videos = list(results.videos)
             albums = list(results.albums)
         tracks = [song for song in tracks if song.video_id]
+        videos = [video for video in videos if video.video_id]
         albums = [album for album in albums if album.browse_id]
-        if not tracks and not albums:
+        if not tracks and not videos and not albums:
             self._render_search_message(SEARCH_NO_RESULTS)
             return
 
         try:
             songs_view = self.query_one("#search-songs", SongListView)
             songs_title = self.query_one("#search-songs-title", Static)
+            videos_view = self.query_one("#search-videos", SongListView)
+            videos_title = self.query_one("#search-videos-title", Static)
             albums_view = self.query_one("#search-albums", AlbumListView)
             albums_title = self.query_one("#search-albums-title", Static)
             message = self.query_one("#search-message", Static)
@@ -787,9 +798,11 @@ class MainScreen(
             return
 
         songs_view.set_songs(tracks[:25])
+        videos_view.set_songs(videos[:20])
         albums_view.set_albums(albums[:15])
         message.display = False
         # Cada seção aparece apenas quando tem itens; as alturas em `fr`
-        # fazem a lista de músicas ocupar todo o espaço quando não há álbuns.
+        # fazem as listas restantes absorverem o espaço quando alguma some.
         songs_view.display = songs_title.display = bool(tracks)
+        videos_view.display = videos_title.display = bool(videos)
         albums_view.display = albums_title.display = bool(albums)

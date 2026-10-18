@@ -43,10 +43,14 @@ Screen {
     padding-left: 1;
 }
 
-/* Músicas ficam com 3x o espaço dos álbuns; quando uma seção some
-   (display: none), a outra absorve o espaço automaticamente (fr). */
+/* Músicas 3fr, vídeos 2fr e álbuns 1fr; quando uma seção some
+   (display: none), as outras absorvem o espaço automaticamente (fr). */
 #search-songs {
     height: 3fr;
+}
+
+#search-videos {
+    height: 2fr;
 }
 
 #search-albums {

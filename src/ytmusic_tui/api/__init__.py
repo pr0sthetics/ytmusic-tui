@@ -160,12 +160,13 @@ class YTMusicAPI:
         query: str,
         songs_limit: int = 25,
         albums_limit: int = 15,
+        videos_limit: int = 20,
         should_abort: Callable[[], bool] | None = None,
     ) -> SearchResult:
-        """Busca músicas e álbuns em paralelo (duas requisições concorrentes).
+        """Busca músicas, vídeos e álbuns em paralelo (três requisições).
 
         A busca sem filtro capa cada categoria em ~5 itens (ruim para a lista
-        de músicas) e a versão sequencial custaria o dobro da latência; em
+        de músicas) e a versão sequencial custaria o triplo da latência; em
         paralelo o tempo total é o de uma requisição só (~2s, medido).
 
         A saída é sempre ``SearchResult`` com modelos internos (T10-R1); a
@@ -175,7 +176,7 @@ class YTMusicAPI:
         Busca recente (TTL 5 min, T10-R4) sai do cache: zero rede.
         """
         cache = self._get_cache()
-        key = cache_key(query, songs_limit, albums_limit)
+        key = cache_key(query, songs_limit, albums_limit, videos_limit)
         cached = cache.get("search", key)
         if cached is not None:
             # §13.2/T13: registra o fato, nunca a consulta do usuário.
@@ -187,7 +188,7 @@ class YTMusicAPI:
         client = self._require_client()
         context = f'busca "{query}"'
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        with ThreadPoolExecutor(max_workers=3) as pool:
             tracks_future = pool.submit(
                 self._call,
                 lambda: client.search(query, filter="songs", limit=songs_limit),
@@ -200,7 +201,15 @@ class YTMusicAPI:
                 context=context,
                 should_abort=should_abort,
             )
-            result = search_result_from_raws(tracks_future.result(), albums_future.result())
+            videos_future = pool.submit(
+                self._call,
+                lambda: client.search(query, filter="videos", limit=videos_limit),
+                context=context,
+                should_abort=should_abort,
+            )
+            result = search_result_from_raws(
+                tracks_future.result(), albums_future.result(), videos_future.result()
+            )
 
         cache.put("search", key, result.to_payload())
         return result

@@ -203,7 +203,7 @@ def test_album_detail_tracks_invalidos():
 
 
 def test_search_result_filtra_tipos_e_ids_ausentes():
-    """Só entram song com videoId e album com browseId (T08 preservado)."""
+    """Só entram song/video com videoId e album com browseId (T08 preservado)."""
     result = search_result_from_raws(
         [
             {"resultType": "song", "videoId": "v1", "title": "ok"},
@@ -214,26 +214,35 @@ def test_search_result_filtra_tipos_e_ids_ausentes():
             {"resultType": "album", "browseId": "b1", "title": "ok"},
             {"resultType": "artist", "browseId": "b2", "title": "artista fora"},
         ],
+        [
+            {"resultType": "video", "videoId": "v3", "title": "ok"},
+            {"resultType": "song", "videoId": "v4", "title": "canção fora"},
+            {"resultType": "video", "title": "sem id"},
+        ],
     )
 
     assert isinstance(result, SearchResult)
     assert [t.video_id for t in result.tracks] == ["v1"]
     assert [a.browse_id for a in result.albums] == ["b1"]
+    assert [v.video_id for v in result.videos] == ["v3"]
 
 
 def test_search_result_id_invalido_em_item_filtrado():
     """videoId presente com tipo errado é fora do contrato (não é 'ausente')."""
     with pytest.raises(InvalidResponseError, match="campo 'videoId' esperado str"):
-        search_result_from_raws([{"resultType": "song", "videoId": 5}], [])
+        search_result_from_raws([{"resultType": "song", "videoId": 5}], [], [])
 
 
 def test_search_result_valida_formas_do_t08():
     """As mensagens do T08 seguem idênticas (L2 e unit dependem delas)."""
     with pytest.raises(InvalidResponseError, match="esperado lista, recebido dict"):
-        search_result_from_raws({"videoId": "x"}, [])
+        search_result_from_raws({"videoId": "x"}, [], [])
 
     with pytest.raises(InvalidResponseError, match="esperado lista, recebido NoneType"):
-        search_result_from_raws([], None)
+        search_result_from_raws([], None, [])
+
+    with pytest.raises(InvalidResponseError, match="esperado lista, recebido NoneType"):
+        search_result_from_raws([], [], None)
 
     with pytest.raises(InvalidResponseError, match="esperado dict, recebido str"):
         _ensure_result_list([{"videoId": "ok"}, "lixo"])
@@ -274,7 +283,7 @@ def test_payload_round_trip_e_json_safe():
         thumbnail_url="u",
         tracks=(track,),
     )
-    result = SearchResult(tracks=(track,), albums=(album,))
+    result = SearchResult(tracks=(track,), albums=(album,), videos=(track,))
 
     for model in (track, album, detail, result):
         payload = json.loads(json.dumps(model.to_payload()))  # precisa ser JSON-safe
@@ -287,6 +296,9 @@ def test_from_payload_tolera_campos_extras_e_ausentes():
     assert AlbumDetail.from_payload(
         {"browse_id": "b", "tracks": [{"video_id": "t1"}, "lixo"]}
     ) == AlbumDetail(browse_id="b", title="", tracks=(Track(video_id="t1", title=""),))
+    assert SearchResult.from_payload({"videos": [{"video_id": "vi"}, "lixo"]}) == SearchResult(
+        videos=(Track(video_id="vi", title=""),)
+    )
 
 
 if __name__ == "__main__":

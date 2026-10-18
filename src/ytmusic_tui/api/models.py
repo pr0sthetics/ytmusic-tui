@@ -158,16 +158,22 @@ class AlbumDetail(Album):
 
 @dataclass(frozen=True, slots=True)
 class SearchResult:
-    """Resultado padronizado de ``search_catalog`` (T10-R1)."""
+    """Resultado padronizado de ``search_catalog`` (T10-R1).
+
+    ``videos`` (F10) reutiliza ``Track``: o clipe toca e baixa pelo mesmo
+    pipeline de áudio das músicas (``source_url`` = watch do videoId).
+    """
 
     tracks: tuple[Track, ...] = ()
     albums: tuple[Album, ...] = ()
+    videos: tuple[Track, ...] = ()
 
     def to_payload(self) -> JsonPayload:
         """Forma serializável (JSON-safe) para o cache."""
         return {
             "tracks": [track.to_payload() for track in self.tracks],
             "albums": [album.to_payload() for album in self.albums],
+            "videos": [video.to_payload() for video in self.videos],
         }
 
     @classmethod
@@ -175,6 +181,7 @@ class SearchResult:
         """Reconstrói o modelo do payload (cache); tolerante a campos a mais."""
         raw_tracks = payload.get("tracks")
         raw_albums = payload.get("albums")
+        raw_videos = payload.get("videos")
         return cls(
             tracks=tuple(
                 Track.from_payload(item)
@@ -184,6 +191,11 @@ class SearchResult:
             albums=tuple(
                 Album.from_payload(item)
                 for item in (raw_albums if isinstance(raw_albums, list) else [])
+                if isinstance(item, dict)
+            ),
+            videos=tuple(
+                Track.from_payload(item)
+                for item in (raw_videos if isinstance(raw_videos, list) else [])
                 if isinstance(item, dict)
             ),
         )

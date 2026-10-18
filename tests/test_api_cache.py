@@ -192,6 +192,20 @@ def _fake_client(counters: dict[str, int]):
                         "isAvailable": True,
                     }
                 ]
+            if filter == "videos":
+                counters["videos"] += 1
+                return [
+                    {
+                        "resultType": "video",
+                        "videoId": "vid1",
+                        "title": "Clipe",
+                        "duration": "2:00",
+                        "duration_seconds": 120,
+                        "artists": [{"name": "A"}],
+                        "thumbnails": [{"url": "https://i.ytimg.com/vi/vid1/hq.jpg"}],
+                        "isAvailable": True,
+                    }
+                ]
             counters["albums"] += 1
             return [
                 {
@@ -240,7 +254,7 @@ def _api_with_cache(monkeypatch, tmp_path, clock, counters):
 
 
 def test_search_catalog_acerta_cache_na_segunda_chamada(monkeypatch, tmp_path, clock):
-    counters = {"songs": 0, "albums": 0, "album_detail": 0}
+    counters = {"songs": 0, "albums": 0, "videos": 0, "album_detail": 0}
     api, _cache = _api_with_cache(monkeypatch, tmp_path, clock, counters)
 
     first = api.search_catalog("q")
@@ -249,14 +263,17 @@ def test_search_catalog_acerta_cache_na_segunda_chamada(monkeypatch, tmp_path, c
     assert second == first
     assert isinstance(second, SearchResult)
     assert second.tracks[0].video_id == "v1"
-    assert (counters["songs"], counters["albums"]) == (1, 1)  # rede só uma vez
+    assert second.videos[0].video_id == "vid1"
+    # rede só uma vez
+    assert (counters["songs"], counters["albums"], counters["videos"]) == (1, 1, 1)
 
     api.search_catalog("outra query")
-    assert (counters["songs"], counters["albums"]) == (2, 2)  # query nova = rede
+    # query nova = rede
+    assert (counters["songs"], counters["albums"], counters["videos"]) == (2, 2, 2)
 
 
 def test_get_album_acerta_cache_na_segunda_chamada(monkeypatch, tmp_path, clock):
-    counters = {"songs": 0, "albums": 0, "album_detail": 0}
+    counters = {"songs": 0, "albums": 0, "videos": 0, "album_detail": 0}
     api, _cache = _api_with_cache(monkeypatch, tmp_path, clock, counters)
 
     first = api.get_album("b1")
@@ -271,19 +288,19 @@ def test_get_album_acerta_cache_na_segunda_chamada(monkeypatch, tmp_path, clock)
 
 
 def test_ttl_expirado_volta_a_bater_na_rede(monkeypatch, tmp_path, clock):
-    counters = {"songs": 0, "albums": 0, "album_detail": 0}
+    counters = {"songs": 0, "albums": 0, "videos": 0, "album_detail": 0}
     api, _cache = _api_with_cache(monkeypatch, tmp_path, clock, counters)
 
     api.search_catalog("q")
     clock.advance(301.0)
     api.search_catalog("q")
 
-    assert (counters["songs"], counters["albums"]) == (2, 2)
+    assert (counters["songs"], counters["albums"], counters["videos"]) == (2, 2, 2)
 
 
 def test_cache_nunca_guarda_url_de_stream(monkeypatch, tmp_path, clock):
     """O arquivo de cache não pode conter URL de stream — só dados de modelo."""
-    counters = {"songs": 0, "albums": 0, "album_detail": 0}
+    counters = {"songs": 0, "albums": 0, "videos": 0, "album_detail": 0}
     api, cache = _api_with_cache(monkeypatch, tmp_path, clock, counters)
 
     api.search_catalog("q")

@@ -217,10 +217,11 @@ def album_detail_from_raw(raw: dict[str, Any]) -> AlbumDetail:
     )
 
 
-def search_result_from_raws(songs_raw: Any, albums_raw: Any) -> SearchResult:
-    """Valida (T08), filtra por tipo e adapta as duas listas da busca."""
+def search_result_from_raws(songs_raw: Any, albums_raw: Any, videos_raw: Any) -> SearchResult:
+    """Valida (T08), filtra por tipo e adapta as três listas da busca (F10)."""
     songs = _ensure_result_list(songs_raw)
     albums = _ensure_result_list(albums_raw)
+    videos = _ensure_result_list(videos_raw)
     tracks = tuple(
         track_from_raw(song)
         for song in songs
@@ -231,4 +232,9 @@ def search_result_from_raws(songs_raw: Any, albums_raw: Any) -> SearchResult:
         for album in albums
         if album.get("resultType") == "album" and album.get("browseId")
     )
-    return SearchResult(tracks=tracks, albums=album_items)
+    video_items = tuple(
+        track_from_raw(video)
+        for video in videos
+        if video.get("resultType") == "video" and video.get("videoId")
+    )
+    return SearchResult(tracks=tracks, albums=album_items, videos=video_items)

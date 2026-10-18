@@ -38,6 +38,8 @@ class _FakeYTMusic:
         item = {"resultType": result_type, "title": f"{filter}-{query}"}
         if result_type == "song":
             item["videoId"] = f"vid-{query}"
+        elif result_type == "video":
+            item["videoId"] = f"vidv-{query}"
         elif result_type == "album":
             item["browseId"] = f"MPREb-{query}"
         return [item]
@@ -99,7 +101,7 @@ def test_initialize_failure_returns_false(monkeypatch):
     assert api._client is None
 
 
-def test_search_catalog_parallel_songs_and_albums_typed(fake_ytmusic):
+def test_search_catalog_parallel_songs_videos_albums_typed(fake_ytmusic):
     """search_catalog devolve modelos internos (dict cru não sai da api/)."""
     api = YTMusicAPI()
     assert api.initialize() is True
@@ -122,7 +124,14 @@ def test_search_catalog_parallel_songs_and_albums_typed(fake_ytmusic):
     assert album.browse_id == "MPREb-coldplay"
     assert album.title == "albums-coldplay"
 
-    assert sorted(api._require_client().searches) == ["albums", "songs"]
+    # F10: vídeos chegam tipados como Track (tocam/baixam pelo pipeline de áudio).
+    assert len(result.videos) == 1
+    video = result.videos[0]
+    assert isinstance(video, Track)
+    assert video.video_id == "vidv-coldplay"
+    assert video.title == "videos-coldplay"
+
+    assert sorted(api._require_client().searches) == ["albums", "songs", "videos"]
 
 
 def test_get_album_returns_typed_detail(fake_ytmusic):
@@ -164,7 +173,7 @@ def test_metodos_sem_consumidor_removidos():
 # ===== validação de forma da busca (T08 · §10.1, movida p/ api/adapt) =====
 
 
-def _client_factory(songs: object, albums: object):
+def _client_factory(songs: object, albums: object, videos: object = ()):
     """Cliente falso que devolve formas controladas por filtro (T08)."""
 
     class _ShapedClient:
@@ -172,7 +181,7 @@ def _client_factory(songs: object, albums: object):
             pass
 
         def search(self, query, filter=None, limit=None, ignore_spelling=False):
-            return {"songs": songs, "albums": albums}[filter]
+            return {"songs": songs, "albums": albums, "videos": videos}[filter]
 
     return _ShapedClient
 

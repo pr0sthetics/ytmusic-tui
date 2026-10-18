@@ -135,7 +135,7 @@ def test_cache_hit_nao_registra_a_consulta(tmp_path, caplog):
     from ytmusic_tui.api.models import SearchResult
 
     cache = ResponseCache(tmp_path / "api-cache")
-    cache.put("search", cache_key("SEGREDO_QUERY", 25, 15), SearchResult().to_payload())
+    cache.put("search", cache_key("SEGREDO_QUERY", 25, 15, 20), SearchResult().to_payload())
     api = YTMusicAPI(cache=cache, sleep=lambda _seconds: None)
 
     with caplog.at_level(logging.DEBUG, logger="ytmusic_tui.api"):

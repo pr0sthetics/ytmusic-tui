@@ -6,6 +6,10 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Adicionado
+
+- Busca: nova seção **🎬 Vídeos** (até 20) — clipes e lives aparecem junto das músicas e tocam/baixam como **áudio** pelo pipeline normal (mp3/flac), entrando na biblioteca como faixa (F10)
+
 ## [0.2.3] - 2026-10-18
 
 ### Corrigido
