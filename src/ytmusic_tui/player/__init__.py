@@ -371,6 +371,10 @@ class MPVPlayer:
 
             # Carregar URL no mpv
             self._mpv.play(track_info.source_url)
+            # Escolher uma faixa é intenção de ouvir (BUG-02): o ``pause`` do
+            # mpv persiste entre cargas — sem zerar, a faixa nova entrava
+            # pausada (e a barra mostrava "tocando").
+            self._mpv.pause = False
 
             self._current_track = track_info
             self._state = PlayerState.PLAYING

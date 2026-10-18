@@ -597,6 +597,22 @@ def test_play_switches_track_mid_playback(monkeypatch):
     assert events.count("play") == 2
 
 
+def test_play_apos_pausa_despausa_automaticamente(monkeypatch):
+    """Relato de campo (2026-10-18, BUG-02): escolher outra faixa com o
+    player pausado deve tocar direto — o ``pause`` do mpv persiste entre
+    cargas, então o ``play()`` precisa zerá-lo (antes a faixa nova entrava
+    pausada e a barra exibia "tocando")."""
+    p, fake = _started_player(monkeypatch)
+
+    assert p.play(TrackInfo(video_id="a", source_url="http://s/a.mp3")) is True
+    p.pause()
+    assert fake.pause is True
+
+    assert p.play(TrackInfo(video_id="b", source_url="http://s/b.mp3")) is True
+    assert fake.pause is False
+    assert p.state == PlayerState.PLAYING
+
+
 def test_volume_is_clamped_to_0_100(monkeypatch):
     """T11-R3: volume clampado 0–100 no handle do mpv."""
     p, fake = _started_player(monkeypatch)
