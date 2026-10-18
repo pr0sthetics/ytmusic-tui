@@ -4,9 +4,10 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
 from ytmusic_tui.library.database import DatabaseManager
-from ytmusic_tui.library.models import TrackSource
+from ytmusic_tui.library.models import Album, Playlist, PlaylistTrack, Track, TrackSource
 from ytmusic_tui.library.service import LibraryService
 
 
@@ -126,6 +127,131 @@ def test_playlist_operations(library_service):
     assert pl is not None
     assert pl.track_count == 2
     assert len(pl.tracks) == 2
+
+
+def test_rename_playlist_apara_e_recusa_branco(library_service):
+    """T17.1/R1: rename apara o nome, recusa vazio e protege sistema."""
+    playlist = library_service.create_playlist("Original")
+
+    assert library_service.rename_playlist(playlist.id, "  Nova Playlist  ") is True
+    reloaded = library_service.get_playlist(playlist.id)
+    assert reloaded is not None
+    assert reloaded.name == "Nova Playlist"
+
+    # Branco (só espaços) é recusado e nada muda.
+    assert library_service.rename_playlist(playlist.id, "   ") is False
+    assert library_service.rename_playlist(playlist.id, "") is False
+    assert library_service.get_playlist(playlist.id).name == "Nova Playlist"
+
+    # Playlist inexistente → False.
+    assert library_service.rename_playlist(9999, "Fantasma") is False
+
+    # Playlist de sistema é protegida.
+    system = library_service.create_playlist("Sistema")
+    with library_service.db.session() as session:
+        session.get(Playlist, system.id).is_system = True
+    assert library_service.rename_playlist(system.id, "Hack") is False
+    assert library_service.get_playlist(system.id).name == "Sistema"
+
+
+def test_delete_playlist_remove_itens_e_protege_sistema(library_service):
+    """T17.1/R1: delete apaga a playlist e os itens (cascade); sistema é protegida."""
+    track_id = library_service.ensure_track("VID-DEL", "Vai junto")
+    assert track_id is not None
+    playlist = library_service.create_playlist("Para apagar")
+    assert library_service.add_track_to_playlist(playlist.id, track_id) is True
+    playlist_id = playlist.id
+
+    assert library_service.delete_playlist(playlist_id) is True
+    assert library_service.get_playlist(playlist_id) is None
+    with library_service.db.session() as session:
+        remaining = (
+            session.execute(select(PlaylistTrack).where(PlaylistTrack.playlist_id == playlist_id))
+            .scalars()
+            .all()
+        )
+    assert list(remaining) == []
+    # A faixa em si continua na biblioteca (só o vínculo saiu).
+    assert library_service.get_track_by_source_id("VID-DEL") is not None
+
+    assert library_service.delete_playlist(9999) is False
+
+    system = library_service.create_playlist("Sistema")
+    with library_service.db.session() as session:
+        session.get(Playlist, system.id).is_system = True
+    assert library_service.delete_playlist(system.id) is False
+    assert library_service.get_playlist(system.id) is not None
+
+
+def test_add_album_to_playlist_ordena_e_conta(library_service):
+    """T17.1/R1: álbum → playlist ordena por número, pula repetidas e conta honestamente."""
+    track_ids = {
+        "A1": library_service.ensure_track("A1", "Terceira", "Artista", "Álbum Ordem"),
+        "A2": library_service.ensure_track("A2", "Primeira", "Artista", "Álbum Ordem"),
+        "A3": library_service.ensure_track("A3", "Segunda", "Artista", "Álbum Ordem"),
+        "A4": library_service.ensure_track("A4", "Sem número", "Artista", "Álbum Ordem"),
+    }
+    # Números gravados como o fluxo de download fará (R2).
+    with library_service.db.session() as session:
+        session.get(Track, track_ids["A1"]).track_number = 3
+        session.get(Track, track_ids["A2"]).track_number = 1
+        session.get(Track, track_ids["A3"]).track_number = 2
+
+    album = library_service.search_albums("Álbum Ordem")[0]
+    playlist = library_service.create_playlist("Mistura")
+
+    result = library_service.add_album_to_playlist(playlist.id, album.id)
+    assert result is not None
+    assert (result.added, result.already, result.album_total) == (4, 0, None)
+
+    reloaded = library_service.get_playlist(playlist.id)
+    assert reloaded.track_count == 4
+    by_position = sorted(reloaded.tracks, key=lambda entry: entry.position)
+    # Numeradas primeiro (1, 2, 3); sem número cai para o fim (added_at/id).
+    assert [entry.track.title for entry in by_position] == [
+        "Primeira",
+        "Segunda",
+        "Terceira",
+        "Sem número",
+    ]
+
+    # Sem duplicatas: a segunda chamada só conta o que já estava.
+    again = library_service.add_album_to_playlist(playlist.id, album.id)
+    assert again is not None
+    assert (again.added, again.already) == (0, 4)
+    assert library_service.get_playlist(playlist.id).track_count == 4
+
+    # album_total conhecido quando Album.track_count existe (parcela K do R5).
+    with library_service.db.session() as session:
+        session.get(Album, album.id).track_count = 6
+    known = library_service.add_album_to_playlist(playlist.id, album.id)
+    assert known is not None
+    assert known.album_total == 6
+
+    # Playlist ou álbum inexistente → None (sem erro).
+    assert library_service.add_album_to_playlist(9999, album.id) is None
+    assert library_service.add_album_to_playlist(playlist.id, 9999) is None
+
+
+def test_add_album_respeita_posicoes_existentes(library_service):
+    """T17.1/R1: entradas novas entram após a posição máxima; contador coerente."""
+    manual_id = library_service.ensure_track("B1", "Antiga")
+    assert manual_id is not None
+    assert library_service.ensure_track("B2", "Do álbum", "Artista", "Álbum B") is not None
+    album = library_service.search_albums("Álbum B")[0]
+
+    playlist = library_service.create_playlist("Fila")
+    assert library_service.add_track_to_playlist(playlist.id, manual_id) is True
+
+    result = library_service.add_album_to_playlist(playlist.id, album.id)
+    assert result is not None
+    assert result.added == 1
+
+    reloaded = library_service.get_playlist(playlist.id)
+    assert reloaded.track_count == 2
+    by_position = sorted(reloaded.tracks, key=lambda entry: entry.position)
+    assert [entry.position for entry in by_position] == [1, 2]
+    assert [entry.track.title for entry in by_position] == ["Antiga", "Do álbum"]
 
 
 def test_like_toggle(library_service):

@@ -160,3 +160,37 @@ def test_add_playback_history_rolls_back_history_and_counters(service, temp_db):
 
     assert service.get_recently_played() == []
     assert service.get_most_played() == []
+
+
+def test_add_album_to_playlist_rolls_back_entries_and_counter(service, temp_db):
+    """T17.1/R1: falha ao atualizar o contador → nenhuma faixa do álbum entra."""
+    assert service.ensure_track("VID-INJ7", "Uma", artist="A", album="Álbum Lote") is not None
+    assert service.ensure_track("VID-INJ8", "Duas", artist="A", album="Álbum Lote") is not None
+    album = service.search_albums("Álbum Lote")[0]
+    playlist = service.create_playlist("Injeção de lote")
+
+    _fail_on_nth_write(temp_db, "playlists", nth=1)
+    with pytest.raises(RuntimeError, match="falha injetada"):
+        service.add_album_to_playlist(playlist.id, album.id)
+
+    reloaded = service.get_playlist(playlist.id)
+    assert reloaded is not None
+    assert list(reloaded.tracks) == []
+    assert reloaded.track_count == 0
+
+
+def test_add_album_to_playlist_rolls_back_partial_batch(service, temp_db):
+    """T17.1/R1: falha no INSERT do lote → rollback completo, nada parcial."""
+    assert service.ensure_track("VID-INJ9", "Uma", artist="A", album="Álbum Parcial") is not None
+    assert service.ensure_track("VID-INJ10", "Duas", artist="A", album="Álbum Parcial") is not None
+    album = service.search_albums("Álbum Parcial")[0]
+    playlist = service.create_playlist("Injeção parcial")
+
+    _fail_on_nth_write(temp_db, "playlist_tracks", nth=1)
+    with pytest.raises(RuntimeError, match="falha injetada"):
+        service.add_album_to_playlist(playlist.id, album.id)
+
+    reloaded = service.get_playlist(playlist.id)
+    assert reloaded is not None
+    assert list(reloaded.tracks) == []
+    assert reloaded.track_count == 0

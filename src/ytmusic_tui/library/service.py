@@ -1,6 +1,7 @@
 """Serviço de alto nível para operações da biblioteca local."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,37 @@ from ytmusic_tui.library.models import (
     UserSettings,
     utcnow,
 )
+
+
+@dataclass(frozen=True)
+class AlbumPlaylistResult:
+    """Contagens do "álbum → playlist" (T17.1/R1/R5).
+
+    ``album_total`` é o ``Album.track_count`` quando conhecido (0/None =
+    desconhecido) — a UI usa para calcular honestamente quantas faixas do
+    álbum ficaram fora da biblioteca ("baixe para incluí-las").
+    """
+
+    added: int
+    already: int
+    album_total: int | None = None
+
+
+def _album_track_order() -> list[Any]:
+    """Ordenação fiel de faixa de álbum (T17.1/R1/R6).
+
+    Com ``disc_number``/``track_number`` gravados (R2), a faixa ordena pelo
+    número — o booleano ``track_number IS NULL`` joga as numeradas para a
+    frente (0 < 1 no SQLite) e as antigas sem número caem para
+    ``added_at``/``id``, sempre com ordem determinística.
+    """
+    return [
+        Track.track_number.is_(None),
+        Track.disc_number,
+        Track.track_number,
+        Track.added_at,
+        Track.id,
+    ]
 
 
 class LibraryService:
@@ -484,6 +516,35 @@ class LibraryService:
                 .all()
             )
 
+    def rename_playlist(self, playlist_id: int, name: str) -> bool:
+        """Renomeia playlist local; nome em branco é recusado (T17.1/R1).
+
+        Playlists de sistema (``is_system``) são protegidas — nunca entram
+        no fluxo da UI e não podem ser renomeadas por acidente.
+        """
+        new_name = name.strip()
+        if not new_name:
+            return False
+        with self.db.session() as session:
+            playlist = session.get(Playlist, playlist_id)
+            if not playlist or playlist.is_system:
+                return False
+            playlist.name = new_name
+            return True
+
+    def delete_playlist(self, playlist_id: int) -> bool:
+        """Apaga a playlist e todos os itens dela (T17.1/R1).
+
+        O cascade do modelo remove as linhas de ``playlist_tracks`` na
+        mesma transação (R3/T05); playlists de sistema são protegidas.
+        """
+        with self.db.session() as session:
+            playlist = session.get(Playlist, playlist_id)
+            if not playlist or playlist.is_system:
+                return False
+            session.delete(playlist)
+            return True
+
     def add_track_to_playlist(self, playlist_id: int, track_id: int, position: int = -1) -> bool:
         """Adiciona faixa à playlist (deslocamento, entrada e contador numa
         transação só — R3/T05)."""
@@ -520,6 +581,63 @@ class LibraryService:
             )
             playlist.track_count = (playlist.track_count or 0) + 1
             return True
+
+    def add_album_to_playlist(self, playlist_id: int, album_id: int) -> AlbumPlaylistResult | None:
+        """Adiciona à playlist as faixas do álbum que estão na biblioteca (T17.1/R1).
+
+        Uma transação só (R3/T05): faixas na ordem de álbum (``disc_number``/
+        ``track_number``; sem número cai para ``added_at``/``id`` — R2/R6),
+        posição ao fim da playlist, e quem já está é pulado (sem duplicatas).
+        Devolve as contagens — inclui o contador de sistema da playlist —
+        ou ``None`` quando playlist ou álbum não existem.
+        """
+        with self.db.session() as session:
+            playlist = session.get(Playlist, playlist_id)
+            album = session.get(Album, album_id)
+            if not playlist or not album:
+                return None
+
+            tracks = list(
+                session.execute(
+                    select(Track).where(Track.album_id == album_id).order_by(*_album_track_order())
+                )
+                .scalars()
+                .all()
+            )
+            existing = set(
+                session.execute(
+                    select(PlaylistTrack.track_id).where(PlaylistTrack.playlist_id == playlist_id)
+                )
+                .scalars()
+                .all()
+            )
+            max_pos = (
+                session.execute(
+                    select(func.max(PlaylistTrack.position)).where(
+                        PlaylistTrack.playlist_id == playlist_id
+                    )
+                ).scalar()
+                or 0
+            )
+
+            added = 0
+            already = 0
+            for track in tracks:
+                if track.id in existing:
+                    already += 1
+                    continue
+                max_pos += 1
+                session.add(
+                    PlaylistTrack(playlist_id=playlist_id, track_id=track.id, position=max_pos)
+                )
+                added += 1
+            if added:
+                playlist.track_count = (playlist.track_count or 0) + added
+            return AlbumPlaylistResult(
+                added=added,
+                already=already,
+                album_total=album.track_count or None,
+            )
 
     def remove_track_from_playlist(self, playlist_id: int, track_id: int) -> bool:
         """Remove faixa da playlist (entrada e contador numa transação só —
