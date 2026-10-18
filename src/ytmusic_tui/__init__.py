@@ -7,4 +7,4 @@ Importe sempre dos submódulos, por exemplo::
     from ytmusic_tui.player import player
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

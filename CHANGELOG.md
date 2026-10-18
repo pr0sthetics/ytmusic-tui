@@ -6,6 +6,8 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.2.3] - 2026-10-18
+
 ### Corrigido
 
 - Escolher outra faixa com o player **pausado** agora começa a tocar direto: o `pause` do mpv é zerado no `play()` — antes a faixa nova entrava pausada e a barra ainda exibia "tocando" (relato de campo, BUG-02)
