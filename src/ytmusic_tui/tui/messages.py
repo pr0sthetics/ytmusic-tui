@@ -47,11 +47,18 @@ _KEY_NAMES = {
 
 
 def format_key(key: str) -> str:
-    """Formata a tecla de um ``Binding`` para exibição (``ctrl+q`` → ``Ctrl+Q``)."""
+    """Formata a tecla de um ``Binding`` para exibição.
+
+    ``ctrl+q`` → ``Ctrl+Q``; letra maiúscula isolada é, no Textual, a
+    combinação com Shift (``P`` → ``Shift+P``) — sem isso a ajuda mostraria
+    ``P`` duplicado para ``p``/``P`` (correção do F1 pós-BUG-01).
+    """
     parts = []
     for part in key.split("+"):
         if part in _KEY_NAMES:
             token = _KEY_NAMES[part]
+        elif len(part) == 1 and part.isalpha() and part.isupper():
+            token = f"Shift+{part}"
         elif len(part) == 1 or (part.startswith("f") and part[1:].isdigit()):
             token = part.upper()
         else:

@@ -6,6 +6,13 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Corrigido
+
+- Ajuda (`F1`): a tecla do álbum → playlist aparece como **`Shift+P`** —
+  antes `p` e `P` renderizavam como dois "P" idênticos na lista de atalhos
+  (o `format_key` agora reconhece maiúscula como Shift, a semântica do
+  Textual)
+
 ## [0.2.1] - 2026-10-18
 
 ### Corrigido

@@ -2065,6 +2065,9 @@ def test_format_key_traduz_teclas_para_ajuda():
     assert format_key("right") == "→"
     assert format_key("f1") == "F1"
     assert format_key("l") == "L"
+    # Maiúscula isolada é a combinação com Shift no Textual (BUG-01/F1).
+    assert format_key("P") == "Shift+P"
+    assert format_key("shift+up") == "Shift+↑"
 
 
 @pytest.mark.asyncio
@@ -2659,6 +2662,8 @@ async def test_help_modal_lista_atalhos_reais_e_fecha_com_esc():
         content = str(help_screen.query_one("#help-content", Static).render())
         for binding in [*YTMusicTUI.BINDINGS, *MainScreen.BINDINGS]:
             assert format_key(binding.key) in content, binding.key
+        # O álbum → playlist não vira um "P" ambíguo na lista (BUG-01/F1).
+        assert content.count("Shift+P") == 1
         # Navegação básica documentada (R1) e sem duplicar tecla na lista
         for token in ("↑/↓", "Tab", "Enter", "Esc"):
             assert token in content, token
