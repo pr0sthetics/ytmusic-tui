@@ -257,6 +257,27 @@ class LibraryController:
         """True quando a aba Biblioteca está no modo álbum (R6)."""
         return self._library_album is not None
 
+    def _selected_library_album(self) -> LibraryAlbum | None:
+        """Álbum aberto na Biblioteca (None = nível de álbuns) — alvo do shift+P (R5)."""
+        return self._library_album
+
+    def _selected_library_track(self) -> LibraryTrack | None:
+        """Faixa selecionada na Biblioteca agora (avulsa ou dentro do álbum).
+
+        É o alvo preferido do ``p`` (T17.1/R4): com um álbum aberto vale a
+        faixa destacada do álbum; no nível 1, a avulsa destacada. Sem
+        destaque (ou fora da Biblioteca), devolve None — quem chama decide
+        cair para a faixa em reprodução.
+        """
+        try:
+            if self._library_album is not None:
+                view = self.query_one("#library-album-tracks", TrackListView)
+            else:
+                view = self.query_one("#library-list", LibraryListView)
+        except Exception:
+            return None
+        return cast("LibraryTrack | None", view.get_selected_track())
+
     def _focus_library_tracks(self) -> None:
         """Foca a lista de faixas do álbum aberto (já visível na aba)."""
         with contextlib.suppress(Exception):

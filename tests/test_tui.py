@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
 from textual.widgets import (
     Button,
     Checkbox,
@@ -40,13 +41,19 @@ from ytmusic_tui.library.errors import (
     SchemaIncompatibleError,
 )
 from ytmusic_tui.library.migrations import SCHEMA_VERSION
+from ytmusic_tui.library.models import Album as DbAlbum
 from ytmusic_tui.library.models import Track as DbTrack
 from ytmusic_tui.library.recovery import ReconciliationReport
-from ytmusic_tui.library.service import LibraryAlbum
+from ytmusic_tui.library.service import AlbumPlaylistResult, LibraryAlbum
 from ytmusic_tui.player import PlayerEvent, TrackInfo, player
 from ytmusic_tui.tui import download_controller, library_controller
 from ytmusic_tui.tui.app import MainScreen, PlayerEventMessage, YTMusicTUI
-from ytmusic_tui.tui.dialogs import ConfirmScreen, HelpScreen, NameInputScreen
+from ytmusic_tui.tui.dialogs import (
+    ConfirmScreen,
+    HelpScreen,
+    NameInputScreen,
+    PlaylistPickerScreen,
+)
 from ytmusic_tui.tui.messages import format_key
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
 from ytmusic_tui.tui.widgets import (
@@ -1658,6 +1665,321 @@ async def test_playlist_faixa_ausente_marcada_e_protegida(monkeypatch, tmp_path)
         await pilot.pause()
         assert played == []  # o player nem foi acionado
         assert any("não está mais no disco" in toast for toast in toasts)
+
+
+def test_bindings_sem_conflito_de_teclas():
+    """T17.1/R4: nenhuma tecla duplicada na mesma tela; p/P nas ações certas."""
+    keys: dict[str, list[str]] = {}
+    for binding in MainScreen.BINDINGS:
+        keys.setdefault(binding.key, []).append(binding.action)
+    clashes = {key: actions for key, actions in keys.items() if len(actions) > 1}
+    assert clashes == {}
+
+    by_key = {binding.key: binding.action for binding in MainScreen.BINDINGS}
+    assert by_key["p"] == "add_to_playlist"
+    assert by_key["P"] == "add_album_to_playlist"
+
+
+@pytest.mark.asyncio
+async def test_p_adiciona_faixa_selecionada_da_biblioteca(monkeypatch):
+    """T17.1/R4: p usa a faixa da Biblioteca (avulsa e no modo álbum), sem duplicar."""
+    alvo = library.create_playlist("Alvo")
+    assert library.ensure_track("AV1", "Avulsa", "Artista") is not None
+    assert library.ensure_track("AB1", "Um", "Artista", "Álbum P") is not None
+    assert library.ensure_track("AB2", "Dois", "Artista", "Álbum P") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        # Nível 1: álbum (0), seção de avulsas (1), avulsa (2).
+        view.index = 2
+        await pilot.press("p")
+        await pilot.pause()
+        picker = app.screen
+        assert isinstance(picker, PlaylistPickerScreen)
+        assert "faixa" in str(picker.query_one("#picker-title", Static).render()).lower()
+        await pilot.press("enter")  # primeira playlist da lista
+        await pilot.pause()
+
+        assert any("➕ Avulsa → Alvo" in toast for toast in toasts)
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert [entry.track.title for entry in stored.tracks] == ["Avulsa"]
+
+        # De novo: já estava; continua só uma entrada (sem duplicata).
+        toasts.clear()
+        await pilot.press("p")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert any("Já estava em «Alvo»: Avulsa" in toast for toast in toasts)
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert [entry.track.title for entry in stored.tracks] == ["Avulsa"]
+
+        # Modo álbum: p usa a faixa destacada do álbum aberto.
+        view.index = 0
+        await pilot.press("enter")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+        tracks = screen.query_one("#library-album-tracks", TrackListView)
+        tracks.index = 1
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        await pilot.press("enter")
+        await pilot.pause()
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert sorted(entry.track.title for entry in stored.tracks) == ["Avulsa", "Dois"]
+
+
+@pytest.mark.asyncio
+async def test_p_usa_faixa_atual_fora_da_biblioteca(monkeypatch):
+    """T17.1/R4: espelho do l — fora da Biblioteca vale a faixa tocando.
+
+    Sem nada tocando: recado de "nenhuma faixa". Tocando algo que não está
+    na biblioteca local: "baixe primeiro" — sem abrir picker vazio.
+    """
+    alvo = library.create_playlist("Alvo")
+    assert library.ensure_track("CUR1", "Tocando", "Artista") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        monkeypatch.setattr(player, "_current_track", None)
+
+        # Na Busca (sem seleção da Biblioteca) e sem reprodução: avisa.
+        await pilot.press("p")
+        await pilot.pause()
+        assert any("Nenhuma faixa em reprodução" in toast for toast in toasts)
+        assert not isinstance(app.screen, PlaylistPickerScreen)
+
+        # Tocando uma faixa que está na biblioteca: p adiciona a atual.
+        monkeypatch.setattr(
+            player,
+            "_current_track",
+            TrackInfo(video_id="CUR1", title="Tocando", artist="Artista"),
+        )
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        await pilot.press("enter")
+        await pilot.pause()
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert [entry.track.title for entry in stored.tracks] == ["Tocando"]
+
+        # Tocando algo fora da biblioteca local: baixe primeiro, sem picker.
+        monkeypatch.setattr(
+            player,
+            "_current_track",
+            TrackInfo(video_id="FORA", title="Só no YouTube", artist="Artista"),
+        )
+        toasts.clear()
+        await pilot.press("p")
+        await pilot.pause()
+        assert any("Baixe a faixa primeiro" in toast for toast in toasts)
+        assert not isinstance(app.screen, PlaylistPickerScreen)
+
+
+@pytest.mark.asyncio
+async def test_pickar_nova_playlist_cria_e_adiciona(monkeypatch):
+    """T17.1/R4: "➕ Nova playlist…" encadeia o nome e já adiciona a faixa."""
+    assert library.ensure_track("NV1", "Faixa Nova", "Artista") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        view.index = 1  # sem álbuns: seção (0) + avulsa (1)
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        # Sem playlists, a lista traz só "➕ Nova playlist…" (índice 0).
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, NameInputScreen)
+        await pilot.press(*"Criada", "space", *"Agora")
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app.screen is screen
+        assert any("Playlist criada: Criada Agora" in toast for toast in toasts)
+        assert any("➕ Faixa Nova → Criada Agora" in toast for toast in toasts)
+        playlists_view = screen.query_one("#playlists-list", PlaylistListView)
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert [str(item.name) for item in playlists_view.playlists] == ["Criada Agora"]
+        stored = library.get_playlist(playlists_view.playlists[0].id)
+        assert stored is not None
+        assert [entry.track.title for entry in stored.tracks] == ["Faixa Nova"]
+
+
+@pytest.mark.asyncio
+async def test_esc_do_picker_cancela_sem_adicionar(monkeypatch):
+    """T17.1/R4: Esc no picker não cria nem adiciona nada."""
+    alvo = library.create_playlist("Alvo")
+    assert library.ensure_track("ES1", "Faixa", "Artista") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        view.index = 1  # seção (0) + avulsa (1)
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.screen is screen
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert stored.tracks == []
+
+
+@pytest.mark.asyncio
+async def test_shift_p_album_para_playlist_resumo_honesto(monkeypatch):
+    """T17.1/R5: resumo verdadeiro (adicionadas/já estavam/fora da biblioteca)."""
+    alvo = library.create_playlist("Alvo")
+    for number, title in ((1, "Um"), (2, "Dois")):
+        assert (
+            library.ensure_track(f"HP{number}", title, "Artista", "Honesto", track_number=number)
+            is not None
+        )
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        # Album.track_count conhecido (3): a parcela K aparece no recado.
+        with library.db.session() as session:
+            row = session.execute(select(DbAlbum).where(DbAlbum.title == "Honesto")).scalar_one()
+            row.track_count = 3
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        view.index = 0  # só o álbum (sem avulsas)
+        await pilot.press("enter")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        await pilot.press("P")
+        await pilot.pause()
+        picker = app.screen
+        assert isinstance(picker, PlaylistPickerScreen)
+        assert "álbum" in str(picker.query_one("#picker-title", Static).render()).lower()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        summary = next(toast for toast in toasts if "Álbum" in toast)
+        assert "2 adicionadas" in summary
+        assert "0 já estavam" in summary
+        assert "1 fora da biblioteca (baixe para incluí-la)" in summary
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        ordered = sorted(stored.tracks, key=lambda entry: entry.position)
+        assert [entry.track.title for entry in ordered] == ["Um", "Dois"]
+
+        # Repetindo: nada novo entra, e o recado não maquia.
+        toasts.clear()
+        await pilot.press("P")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        summary = next(toast for toast in toasts if "Álbum" in toast)
+        assert "0 adicionadas" in summary
+        assert "2 já estavam" in summary
+
+        # Sem track_count (None): não dá para afirmar K — sai do recado.
+        with library.db.session() as session:
+            row = session.execute(select(DbAlbum).where(DbAlbum.title == "Honesto")).scalar_one()
+            row.track_count = None
+        toasts.clear()
+        await pilot.press("P")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        summary = next(toast for toast in toasts if "Álbum" in toast)
+        assert "0 adicionadas" in summary
+        assert "fora da biblioteca" not in summary
+
+
+@pytest.mark.asyncio
+async def test_shift_p_nada_a_adicionar_mensagem_clara(monkeypatch):
+    """T17.1/R5: nada a adicionar tem mensagem própria (não é silêncio)."""
+    library.create_playlist("Alvo")
+    assert library.ensure_track("VAZ1", "Única", "Artista", "Vazio", track_number=1) is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        view.index = 0
+        await pilot.press("enter")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        # Simula a corrida: as faixas sumiram da biblioteca entre a leitura e o add.
+        monkeypatch.setattr(
+            library,
+            "add_album_to_playlist",
+            lambda playlist_id, album_id: AlbumPlaylistResult(added=0, already=0, album_total=3),
+        )
+        await pilot.press("P")
+        await pilot.pause()
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert any(
+            "Nada a adicionar de «Vazio»" in toast and "3 faixas fora da biblioteca" in toast
+            for toast in toasts
+        )
 
 
 def test_bindings_resolve_to_actions():

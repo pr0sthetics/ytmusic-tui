@@ -6,8 +6,9 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Static
+from textual.widgets import Input, Label, ListItem, ListView, Static
 
+from ytmusic_tui.library.models import Playlist
 from ytmusic_tui.tui.messages import (
     HELP_FOOTER,
     HELP_KEYS_TITLE,
@@ -15,8 +16,14 @@ from ytmusic_tui.tui.messages import (
     HELP_NAV_TITLE,
     HELP_TITLE,
     PLAYLIST_NAME_REQUIRED,
+    PLAYLIST_PICKER_EMPTY,
+    PLAYLIST_PICKER_NEW,
     help_shortcut_lines,
+    playlist_label,
 )
+
+#: Sentinela devolvido pelo picker quando o usuário escolhe "➕ Nova playlist…".
+PICKER_NEW_PLAYLIST = "new"
 
 
 class HelpScreen(ModalScreen[None]):
@@ -121,6 +128,54 @@ class NameInputScreen(ModalScreen[str | None]):
             self.query_one("#name-error", Static).update(PLAYLIST_NAME_REQUIRED)
             return
         self.dismiss(name)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class PlaylistPickerScreen(ModalScreen["Playlist | str | None"]):
+    """Escolhe uma playlist (ou cria uma nova) para receber faixas (T17.1/R4/R5).
+
+    Devolve a playlist escolhida, o sentinela :data:`PICKER_NEW_PLAYLIST`
+    para "➕ Nova playlist…" ou ``None`` (Esc cancela). A última linha da
+    lista é sempre a opção de criar — com zero playlists o picker continua
+    útil. As contagens vêm das entradas carregadas pelo host antes de abrir
+    o modal; aqui só se desenha o que foi entregue.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancelar"),
+    ]
+
+    def __init__(self, playlists: list[Playlist], title: str) -> None:
+        super().__init__()
+        self._playlists = list(playlists)
+        self._title = title
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker-box"):
+            yield Static(self._title, id="picker-title", markup=False)
+            if not self._playlists:
+                yield Static(PLAYLIST_PICKER_EMPTY, id="picker-empty", markup=False)
+            yield ListView(id="picker-list")
+
+    def on_mount(self) -> None:
+        view = self.query_one("#picker-list", ListView)
+        for playlist in self._playlists:
+            count = len(playlist.tracks)
+            view.append(ListItem(Label(playlist_label(str(playlist.name), count), markup=False)))
+        view.append(ListItem(Label(PLAYLIST_PICKER_NEW, markup=False)))
+        view.focus()
+        view.index = 0
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        index = self.query_one("#picker-list", ListView).index
+        if index is None:
+            return
+        if 0 <= index < len(self._playlists):
+            self.dismiss(self._playlists[index])
+            return
+        self.dismiss(PICKER_NEW_PLAYLIST)
 
     def action_cancel(self) -> None:
         self.dismiss(None)

@@ -124,6 +124,8 @@ class MainScreen(
         Binding("delete", "delete_playlist", "Excluir playlist/faixa"),
         Binding("shift+up", "move_playlist_track_up", "Mover faixa ↑"),
         Binding("shift+down", "move_playlist_track_down", "Mover faixa ↓"),
+        Binding("p", "add_to_playlist", "Adicionar à playlist"),
+        Binding("P", "add_album_to_playlist", "Adicionar álbum à playlist"),
         Binding("escape", "back_to_search", "Voltar", show=False),
         Binding("ctrl+l", "library", "Biblioteca"),
         Binding("f1", "help", "Ajuda"),
@@ -457,9 +459,12 @@ class MainScreen(
         ``r`` (retomar) e ``d`` (descartar) só existem na aba 📥 Downloads:
         fora dela o atalho fica inativo — uma letra digitada em outro
         contexto não dispara comando de download (nem toast fora de hora).
-        ``t`` (tocar álbum) só vale com um álbum aberto na Biblioteca (R6);
-        ``n``/``e``/``delete``/``shift+↑``/``shift+↓`` só valem na aba 🎵
-        Playlists, e renomear/excluir pedem uma playlist alvo (R3).
+        ``t`` (tocar álbum) e ``P`` (álbum → playlist) só valem com um álbum
+        aberto na Biblioteca (R6/R5); ``n``/``e``/``delete``/``shift+↑``/
+        ``shift+↓`` só valem na aba 🎵 Playlists, e renomear/excluir pedem
+        uma playlist alvo (R3). ``p`` (adicionar faixa à playlist) existe em
+        qualquer aba — espelho do ``l``, que usa a faixa atual fora da
+        Biblioteca (R4).
         """
         if action in ("retry_download", "discard_download"):
             try:
@@ -467,7 +472,7 @@ class MainScreen(
             except Exception:
                 return False
             return bool(tabs.active == "tab-downloads")
-        if action == "play_album":
+        if action in ("play_album", "add_album_to_playlist"):
             try:
                 tabs = self.query_one("#main-tabs", TabbedContent)
             except Exception:

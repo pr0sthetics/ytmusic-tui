@@ -3,36 +3,53 @@
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
-from textual.widgets import Static
+from textual.widgets import Static, TabbedContent
 from textual.worker import Worker
 
 from ytmusic_tui.library import library
 from ytmusic_tui.library.errors import LibraryError, describe_library_error
 from ytmusic_tui.library.models import Playlist
 from ytmusic_tui.library.models import Track as LibraryTrack
+from ytmusic_tui.library.service import LibraryAlbum
 from ytmusic_tui.log import log_event, log_file_path
-from ytmusic_tui.tui.dialogs import ConfirmScreen, NameInputScreen
+from ytmusic_tui.player import player
+from ytmusic_tui.tui.dialogs import (
+    PICKER_NEW_PLAYLIST,
+    ConfirmScreen,
+    NameInputScreen,
+    PlaylistPickerScreen,
+)
 from ytmusic_tui.tui.messages import (
     MISSING_LEGEND_TEXT,
+    NO_TRACK_PLAYING,
+    PLAYLIST_ADD_FAILED,
+    PLAYLIST_ADD_NEEDS_DOWNLOAD,
     PLAYLIST_DELETE_FAILED,
     PLAYLIST_EMPTY_TEXT,
     PLAYLIST_LOADING_TEXT,
     PLAYLIST_NAME_PLACEHOLDER,
     PLAYLIST_NEW_PROMPT,
+    PLAYLIST_PICKER_TITLE_ALBUM,
+    PLAYLIST_PICKER_TITLE_TRACK,
     PLAYLIST_RENAME_FAILED,
     PLAYLIST_RENAME_PROMPT,
     PLAYLIST_REORDER_FAILED,
     PLAYLISTS_EMPTY_TEXT,
     PLAYLISTS_LOADING_TEXT,
     PLAYLISTS_UNAVAILABLE_TOAST,
+    album_playlist_nothing,
+    album_playlist_summary,
     confirm_delete_playlist,
     escape_markup,
     playlist_created,
     playlist_deleted,
     playlist_move_edge,
     playlist_renamed,
+    playlist_track_added,
+    playlist_track_already,
     playlist_track_moved,
     playlist_track_removed,
     playlists_unavailable,
@@ -84,6 +101,8 @@ class PlaylistController:
         def call_after_refresh(self, *args: Any, **kwargs: Any) -> Any: ...
         def _toast(self, message: str) -> None: ...
         def _startup_db_error(self) -> LibraryError | None: ...
+        def _selected_library_track(self) -> LibraryTrack | None: ...
+        def _selected_library_album(self) -> LibraryAlbum | None: ...
 
     def refresh_playlists(self) -> Worker[None]:
         """Agenda a atualização da aba Playlists (nível 1 ou detalhe).
@@ -376,6 +395,152 @@ class PlaylistController:
             return
         self.refresh_playlists()
         self._toast(playlist_deleted(name))
+
+    # ===== Adicionar à playlist (T17.1/R4/R5) =====
+
+    def action_add_to_playlist(self) -> None:
+        """P: adiciona a playlist a faixa selecionada ou a que está tocando.
+
+        Mesmo desenho do ``l`` (curtir), que só olha a faixa em reprodução:
+        com uma faixa destacada na Biblioteca (avulsa ou dentro do álbum
+        aberto) ela tem prioridade — é o gesto explícito; fora da Biblioteca
+        vale a faixa atual. Fora da biblioteca local o recado é o mesmo do
+        curtir: baixe primeiro (R4).
+        """
+        track = self._track_for_playlist_add()
+        if track is None:
+            return
+        self._open_playlist_picker(
+            PLAYLIST_PICKER_TITLE_TRACK,
+            lambda picked: self._pick_into_playlist(
+                picked, lambda playlist: self._add_track_to_playlist(track, playlist)
+            ),
+        )
+
+    def action_add_album_to_playlist(self) -> None:
+        """P (shift): adiciona a playlist o álbum aberto na Biblioteca (R5)."""
+        entry = self._selected_library_album()
+        if entry is None:
+            return  # check_action já limita ao modo álbum da Biblioteca.
+        self._open_playlist_picker(
+            PLAYLIST_PICKER_TITLE_ALBUM,
+            lambda picked: self._pick_into_playlist(
+                picked, lambda playlist: self._add_album_to_playlist(entry, playlist)
+            ),
+        )
+
+    def _track_for_playlist_add(self) -> LibraryTrack | None:
+        """Faixa alvo do ``p``: seleção da Biblioteca ou a faixa em reprodução."""
+        try:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+        except Exception:
+            tabs = None
+        if tabs is not None and tabs.active == "tab-library":
+            selected = self._selected_library_track()
+            if selected is not None:
+                return selected
+        playing = player.current_track
+        if not playing or not playing.video_id:
+            self._toast(NO_TRACK_PLAYING)
+            return None
+        lib_track = library.get_track_by_source_id(playing.video_id)
+        if lib_track is None:
+            self._toast(PLAYLIST_ADD_NEEDS_DOWNLOAD)
+            return None
+        return cast(LibraryTrack, lib_track)
+
+    def _open_playlist_picker(
+        self, title: str, on_pick: Callable[[Playlist | str | None], None]
+    ) -> None:
+        """Abre o modal de escolha com a lista fresca (R4/R5).
+
+        A leitura das playlists é pequena (com as contagens) e roda antes do
+        modal, como o resto dos fluxos de escrita da TUI; falha de banco
+        avisa em vez de abrir um picker vazio que pareceria "sem playlists".
+        """
+        try:
+            playlists = library.list_playlists()
+        except LibraryError as error:
+            self._log_playlists_failure(error)
+            self._toast(PLAYLISTS_UNAVAILABLE_TOAST)
+            return
+        self.app.push_screen(PlaylistPickerScreen(playlists, title), on_pick)
+
+    def _pick_into_playlist(
+        self, picked: Playlist | str | None, on_playlist: Callable[[Playlist], None]
+    ) -> None:
+        """Resolve a escolha do picker; "➕ Nova playlist…" encadeia o nome (R4)."""
+        if picked is None:
+            return  # Esc cancela: nada criado, nada adicionado.
+        if picked == PICKER_NEW_PLAYLIST:
+            self.app.push_screen(
+                NameInputScreen(PLAYLIST_NEW_PROMPT, PLAYLIST_NAME_PLACEHOLDER),
+                lambda name: self._create_playlist_then(name, on_playlist),
+            )
+            return
+        on_playlist(cast(Playlist, picked))
+
+    def _create_playlist_then(
+        self, name: str | None, on_playlist: Callable[[Playlist], None]
+    ) -> None:
+        """Cria a playlist pedida no fluxo e segue com ela (R4)."""
+        if not name:
+            return  # Esc cancela: nada criado, nada adicionado.
+        playlist = library.create_playlist(name)
+        self.refresh_playlists()
+        self._toast(playlist_created(name))
+        on_playlist(playlist)
+
+    def _add_track_to_playlist(self, track: LibraryTrack, playlist: Playlist) -> None:
+        """Adiciona uma faixa à playlist, pulando repetida (R4)."""
+        name = str(playlist.name)
+        if self._playlist_has_track(playlist, cast(int, track.id)):
+            self._toast(playlist_track_already(str(track.title), name))
+            return
+        added = library.add_track_to_playlist(cast(int, playlist.id), cast(int, track.id))
+        if not added:
+            self._toast(PLAYLIST_ADD_FAILED)
+            return
+        self.refresh_playlists()
+        self._toast(playlist_track_added(str(track.title), name))
+
+    def _add_album_to_playlist(self, entry: LibraryAlbum, playlist: Playlist) -> None:
+        """Adiciona as faixas do álbum que estão na biblioteca (R5).
+
+        O recado é o que aconteceu: adicionadas, já estavam e — só quando o
+        total do álbum é conhecido (``track_count`` no modelo) — quantas
+        ficaram fora da biblioteca. Nada é maquiado para "tudo certo".
+        """
+        result = library.add_album_to_playlist(cast(int, playlist.id), cast(int, entry.album.id))
+        if result is None:
+            self._toast(PLAYLIST_ADD_FAILED)
+            return
+        missing: int | None = None
+        if result.album_total is not None:
+            missing = max(0, result.album_total - result.added - result.already)
+        if result.added == 0 and result.already == 0:
+            self._toast(album_playlist_nothing(str(entry.album.title), missing))
+        else:
+            self._toast(
+                album_playlist_summary(
+                    str(entry.album.title), result.added, result.already, missing
+                )
+            )
+        self.refresh_playlists()
+
+    @staticmethod
+    def _playlist_has_track(playlist: Playlist, track_id: int) -> bool:
+        """Checagem contra duplicata usando as entradas já carregadas (R4).
+
+        O picker carrega as playlists com as entradas (``list_playlists``),
+        então a checagem não custa consulta extra. Se por algum motivo as
+        entradas não estiverem acessíveis, devolve False (fail-open): é
+        melhor tentar adicionar do que bloquear uma adição legítima.
+        """
+        try:
+            return any(cast(int, entry.track_id) == track_id for entry in playlist.tracks)
+        except Exception:
+            return False
 
     # ===== Faixas do detalhe (T17.1/R3) =====
 

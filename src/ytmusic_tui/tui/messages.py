@@ -339,6 +339,55 @@ def playlists_unavailable(reason: str, log_path: str) -> str:
     )
 
 
+# --- Adicionar à playlist (T17.1/R4/R5) ---
+PLAYLIST_PICKER_TITLE_TRACK = "➕ Adicionar faixa — escolha a playlist:"
+PLAYLIST_PICKER_TITLE_ALBUM = "➕ Adicionar álbum — escolha a playlist:"
+PLAYLIST_PICKER_NEW = "➕ Nova playlist…"
+PLAYLIST_PICKER_EMPTY = "Nenhuma playlist ainda — '➕ Nova playlist…' cria a primeira."
+PLAYLIST_ADD_NEEDS_DOWNLOAD = "Baixe a faixa primeiro (Ctrl+D) para adicioná-la a uma playlist."
+PLAYLIST_ADD_FAILED = "Não foi possível adicionar — a playlist mudou; tente de novo."
+
+
+def playlist_track_added(title: str, playlist: str) -> str:
+    return f"➕ {title} → {playlist}"
+
+
+def playlist_track_already(title: str, playlist: str) -> str:
+    return f"Já estava em «{playlist}»: {title}"
+
+
+def album_playlist_summary(album_title: str, added: int, already: int, missing: int | None) -> str:
+    """Recado honesto do álbum → playlist (R5): só o que aconteceu de fato.
+
+    ``missing`` só entra quando o total do álbum é conhecido (``track_count``
+    do modelo); o que não deu para adicionar aparece com o caminho de saída
+    (baixar). Nada é arredondado para "tudo certo".
+    """
+    parts = [
+        "1 adicionada" if added == 1 else f"{added} adicionadas",
+        "1 já estava" if already == 1 else f"{already} já estavam",
+    ]
+    if missing:
+        parts.append(
+            "1 fora da biblioteca (baixe para incluí-la)"
+            if missing == 1
+            else f"{missing} fora da biblioteca (baixe para incluí-las)"
+        )
+    return f"➕ Álbum «{album_title}»: " + " · ".join(parts)
+
+
+def album_playlist_nothing(album_title: str, missing: int | None) -> str:
+    """Nada a adicionar — mensagem clara em vez de um toast silencioso (R5)."""
+    if missing:
+        detail = (
+            "1 faixa fora da biblioteca (baixe para incluí-la)."
+            if missing == 1
+            else f"{missing} faixas fora da biblioteca (baixe para incluí-las)."
+        )
+        return f"Nada a adicionar de «{album_title}» — {detail}"
+    return f"Nada a adicionar de «{album_title}»: nenhuma faixa na biblioteca local."
+
+
 #: Marca de faixa ausente nas listas — legenda honesta junto da lista (R7).
 MISSING_MARK = "⚠"
 MISSING_LEGEND_TEXT = f"{MISSING_MARK} arquivo não encontrado na última reconciliação"
