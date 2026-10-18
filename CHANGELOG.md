@@ -12,6 +12,13 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
   máquina de referência, ~90 MB de memória (PSS, cota proporcional) e
   ~125 MB residentes (RSS); a linha de apresentação também menciona
   "lightweight"
+- README: a nota "~80% vibe-coded" virou a seção **Development methodology
+  & AI stack** — projeto apresentado como AI-native (fluxo prompt-driven
+  multi-modelo; papéis humano/IA; camadas de qualidade), com selo, citação
+  de topo e limitações atualizados
+- README: a seção *Releases and updates* deixou de tratar automação e
+  hashes como "future step" — o fluxo do T16 já publica `SHA256SUMS` e os
+  hashes no corpo da Release
 
 ### Corrigido
 

@@ -6,11 +6,11 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Tests](https://img.shields.io/badge/tests-554%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
-![Vibe-coded](https://img.shields.io/badge/vibe--coded-~80%25-ff69b4)
+![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
-> ## ⚠️ Honesty warning: this project is ~80% "vibe-coded"
+> ## 🤖 AI-native, human-verified
 >
-> Most of this code was written in **vibe coding** — talking to an AI assistant, with review, tweaks and manual testing by the author along the way. It has **554 automated tests** and real daily use, so it **actually works** — but expect rough edges: the occasional bug, "AI-looking" code here and there and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **554 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -406,7 +406,7 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **~80% vibe-coded** (warning at the top 🙂): the 554 tests cover the main flow, but the occasional bug is expected
+- **AI-native, human-verified** (note at the top): the 554 tests cover the main flow, but the occasional bug is expected
 - No MPRIS, lyrics, equalizer, automatic radio or themes (Roadmap)
 
 ## 🆘 When something breaks (and it's not the app)
@@ -471,6 +471,30 @@ ytmusic-tui/
 └── tests/                     # 554 tests in layers (L1 mocks + L2 local) + opt-in integration
 ```
 
+## 🤖 Development methodology & AI stack
+
+This is an **AI-native application**: instead of hand-typing the code, the architecture, the implementation and the tests are **generated from high-level specifications and natural-language directives**, through a prompt-driven, multi-model workflow. The engineering discipline around it is the same one you would expect from a human team — every task comes from a written backlog with acceptance criteria, every change ships with tests, and a red CI run is a stop-the-line event: fixed forward on a new commit, never by rewriting history.
+
+### The AI ensemble
+
+Different models, each used for what it does best:
+
+- **GPT-6 Sol** — architecting and reasoning: system design, complex logic and algorithmic decisions.
+- **DeepSeek v4.1 Flash** and **Gemini 3.8 Flash** — rapid iteration and scripting: boilerplate, structural Python, utilities, test implementation and refactors.
+
+### Human–AI synergy
+
+- **Human author** — system architect, prompt engineer, code reviewer and integration tester: owns the specifications and the backlog, reviews every change, validates by hand in real daily use and makes the go/no-go call on every release.
+- **AI ensemble** — continuous code generation, automated test implementation and refactoring, always inside a task's acceptance criteria and gated by review plus CI.
+
+### How quality is enforced
+
+- **Layered testing** (details in **Development** below): hermetic offline unit/integration layers, opt-in real-network contract checks (plus the weekly scheduled run) and a controlled end-to-end flow — including a real libmpv player suite in CI.
+- **CI on every push**: `ruff` + the offline suite on Python 3.11 and 3.13; a `pip-audit` security job over the locked dependency set; and a packaging job that installs the wheel and the sdist in clean environments and runs `doctor`.
+- **Releases are deliberate**: manual, from a tagged commit with green CI — nothing is published automatically.
+
+Expect pre-1.0 rough edges — the occasional bug and code that "looks AI-written" — but the app is exercised **daily on a real music library**, and the numbers here are honest.
+
 ## 🛠️ Development
 
 ```bash
@@ -515,7 +539,7 @@ Dependencies are updated by **Dependabot** (weekly PRs, dev/runtime groups — w
 
 ### Releases and updates
 
-Each release corresponds to a **traceable commit** with the version in `pyproject.toml` and an entry in `CHANGELOG.md`, an annotated tag (`vX.Y.Z`) and a **green CI on the commit** (e.g.: `v0.1.2` → commit `84b6d80`). Releases are **manual** — nothing is published automatically; artifact hashes (SHA-256) and process automation are a future step.
+Each release corresponds to a **traceable commit** with the version in `pyproject.toml` and an entry in `CHANGELOG.md`, an annotated tag (`vX.Y.Z`) and a **green CI on the commit** (e.g.: `v0.1.2` → commit `84b6d80`). Releases are **manual** — nothing is published automatically: the release workflow (guarded by a green CI) builds the wheel and the sdist, verifies `--version` and `doctor` in clean environments and publishes them with a **`SHA256SUMS`** file.
 
 Dependency updates follow a single path: **Dependabot opens the PR → mandatory CI (3.11/3.13 + lockfile + pip-audit + package) → manual merge**. Merging is not releasing: no update goes straight into a stable release.
 
