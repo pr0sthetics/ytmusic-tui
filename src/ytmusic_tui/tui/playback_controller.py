@@ -11,7 +11,7 @@ from ytmusic_tui.library.errors import AudioFileMissingError, describe_library_e
 from ytmusic_tui.library.models import Track as LibraryTrack
 from ytmusic_tui.player import TrackInfo, player
 from ytmusic_tui.tui.messages import TRACK_WITHOUT_VIDEO_ID, play_started, playback_error
-from ytmusic_tui.tui.widgets import SongListView, TrackListView
+from ytmusic_tui.tui.widgets import SongListView
 
 
 def ensure_audio_file(track: LibraryTrack) -> None:
@@ -33,7 +33,7 @@ class PlaybackController:
 
     A classe host (``MainScreen``) inicializa ``_play_queue``,
     ``_play_index`` e ``_last_auto_next`` e oferece ``_toast``; as listas
-    ``#search-songs``/``#album-songs``/``#library-list`` vêm do layout.
+    ``#search-songs``/``#album-songs``/``#library-*`` vêm do layout.
     """
 
     # Estado e membros fornecidos pela tela host (o mypy analisa cada mixin
@@ -45,6 +45,7 @@ class PlaybackController:
 
         def query_one(self, selector: Any, expect_type: Any = None) -> Any: ...
         def _toast(self, message: str) -> None: ...
+        def _library_visible_tracks(self) -> list[LibraryTrack]: ...
 
     # ===== Ações do player (atalhos e botões) =====
 
@@ -106,20 +107,29 @@ class PlaybackController:
         self._start_playback(info)
 
     def play_library_track(self, track: LibraryTrack) -> None:
-        """Reproduz uma faixa da biblioteca local.
+        """Reproduz uma faixa da biblioteca local (fila = faixas visíveis).
 
-        Arquivo registrado que sumiu do disco vira toast específico
-        (T05-R4) — melhor avisar do que mandar o player abrir um caminho
-        inexistente; a reconciliação marca a faixa na próxima passagem.
+        A fila acompanha o nível em que o usuário está (álbum aberto ou
+        avulsas — R6), começando na faixa selecionada. Arquivo registrado
+        que sumiu do disco vira toast específico (T05-R4) — melhor avisar
+        do que mandar o player abrir um caminho inexistente; a
+        reconciliação marca a faixa na próxima passagem.
         """
         try:
             ensure_audio_file(track)
         except AudioFileMissingError as error:
             self._toast(playback_error(describe_library_error(error)))
             return
-        view = self.query_one("#library-list", TrackListView)
-        index = view.index if view.index is not None else 0
-        self._play_queue = [self._track_info_from_library(t) for t in view.tracks]
+        visible = self._library_visible_tracks()
+        try:
+            index = visible.index(track)
+        except ValueError:
+            index = 0
+        self._play_queue = (
+            [self._track_info_from_library(item) for item in visible]
+            if visible
+            else [self._track_info_from_library(track)]
+        )
         self._play_index = index if 0 <= index < len(self._play_queue) else 0
         self._start_playback(self._track_info_from_library(track))
 

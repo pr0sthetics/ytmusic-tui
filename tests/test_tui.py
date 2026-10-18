@@ -40,7 +40,9 @@ from ytmusic_tui.library.errors import (
     SchemaIncompatibleError,
 )
 from ytmusic_tui.library.migrations import SCHEMA_VERSION
+from ytmusic_tui.library.models import Track as DbTrack
 from ytmusic_tui.library.recovery import ReconciliationReport
+from ytmusic_tui.library.service import LibraryAlbum
 from ytmusic_tui.player import PlayerEvent, TrackInfo, player
 from ytmusic_tui.tui import download_controller, library_controller
 from ytmusic_tui.tui.app import MainScreen, PlayerEventMessage, YTMusicTUI
@@ -49,6 +51,7 @@ from ytmusic_tui.tui.messages import format_key
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
+    LibraryListView,
     NowPlayingBar,
     SongListView,
     TrackListView,
@@ -637,8 +640,9 @@ async def test_startup_schema_incompatible_does_not_crash(monkeypatch):
         assert "Não foi possível carregar a biblioteca local" in rendered
         assert "não é compatível" in rendered
         assert "mais novo que o app" in rendered  # o detalhe original
+        assert "nenhum arquivo é um banco válido" not in rendered
         assert "Nenhuma faixa na biblioteca local ainda" not in rendered
-        assert app.screen.query_one("#library-list", TrackListView).display is False
+        assert app.screen.query_one("#library-list", LibraryListView).display is False
 
 
 @pytest.mark.asyncio
@@ -1022,18 +1026,15 @@ async def test_download_album_reports_tracks_in_progress(monkeypatch):
 async def test_library_refresh_twice_with_tracks(monkeypatch):
     """Regressão: atualizar a biblioteca duas vezes criava DuplicateIds."""
 
-    class _FakeTrack:
+    class _Album:
         id = 1
-        source_id = "vid1"
-        title = "Faixa [ao vivo]"
-        artist_names = ["Artista"]
-        is_downloaded = False
-        local_path = None
-        album = None
+        title = "Álbum [ao vivo]"
+        release_year = None
+        artists: list = []
 
-    monkeypatch.setattr(
-        library, "get_recent_tracks", lambda limit=500: [_FakeTrack(), _FakeTrack()]
-    )
+    entry = LibraryAlbum(album=_Album(), track_count=2, missing_count=0)
+    monkeypatch.setattr(library, "list_library_albums", lambda limit=500: [entry, entry])
+    monkeypatch.setattr(library, "list_standalone_tracks", lambda limit=500: [])
     app = YTMusicTUI()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
@@ -1045,7 +1046,7 @@ async def test_library_refresh_twice_with_tracks(monkeypatch):
         await screen.refresh_library().wait()
         await pilot.pause()  # deixa o DOM assentar (clear/append são mensagens)
 
-        view = screen.query_one("#library-list", TrackListView)
+        view = screen.query_one("#library-list", LibraryListView)
         assert len(view.children) == 2
         assert view.display  # lista visível
         assert not screen.query_one("#library-message", Static).display
@@ -1062,7 +1063,7 @@ async def test_library_load_error_is_shown_not_empty(monkeypatch, caplog):
     def _broken(limit=500):
         raise RuntimeError("banco inacessível [Errno 5]")
 
-    monkeypatch.setattr(library, "get_recent_tracks", _broken)
+    monkeypatch.setattr(library, "list_library_albums", _broken)
     app = YTMusicTUI()
     with caplog.at_level(logging.ERROR, logger="ytmusic_tui"):
         async with app.run_test(size=(120, 40)):
@@ -1076,7 +1077,7 @@ async def test_library_load_error_is_shown_not_empty(monkeypatch, caplog):
             assert "banco inacessível [Errno 5]" in rendered  # colchetes ok
             # A mensagem de "biblioteca vazia" não pode aparecer no lugar
             assert "Nenhuma faixa na biblioteca local ainda" not in rendered
-            assert screen.query_one("#library-list", TrackListView).display is False
+            assert screen.query_one("#library-list", LibraryListView).display is False
 
     # O erro fica registrado no log (nível ERROR, com a exceção)
     assert any(record.levelno == logging.ERROR for record in caplog.records)
@@ -1097,15 +1098,17 @@ async def test_library_recovers_after_load_error(monkeypatch, caplog):
         is_downloaded = False
         local_path = None
         album = None
+        is_missing = False
 
     flaky = {"fail": True}
 
-    def _flaky_tracks(limit=500):
+    def _flaky_singles(limit=500):
         if flaky["fail"]:
             raise RuntimeError("boom")
         return [_Track()]
 
-    monkeypatch.setattr(library, "get_recent_tracks", _flaky_tracks)
+    monkeypatch.setattr(library, "list_library_albums", lambda limit=500: [])
+    monkeypatch.setattr(library, "list_standalone_tracks", _flaky_singles)
     app = YTMusicTUI()
     with caplog.at_level(logging.ERROR, logger="ytmusic_tui"):
         async with app.run_test(size=(120, 40)):
@@ -1119,9 +1122,11 @@ async def test_library_recovers_after_load_error(monkeypatch, caplog):
 
             assert "Nenhuma faixa na biblioteca local ainda" in str(message.render())
             assert message.display is False
-            view = screen.query_one("#library-list", TrackListView)
+            view = screen.query_one("#library-list", LibraryListView)
             assert view.display is True
-            assert len(view.children) == 1
+            # Seção "— Faixas avulsas —" + a faixa
+            assert len(view.children) == 2
+            assert [track.title for track in view.singles] == ["Faixa"]
 
 
 @pytest.mark.asyncio
@@ -1131,7 +1136,7 @@ async def test_library_shows_specific_message_for_typed_error(monkeypatch, caplo
     def _corrupt(limit=500):
         raise DatabaseCorruptError("o arquivo não é um banco válido ou está corrompido")
 
-    monkeypatch.setattr(library, "get_recent_tracks", _corrupt)
+    monkeypatch.setattr(library, "list_library_albums", _corrupt)
     app = YTMusicTUI()
     with caplog.at_level(logging.ERROR, logger="ytmusic_tui"):
         async with app.run_test(size=(120, 40)):
@@ -1145,11 +1150,172 @@ async def test_library_shows_specific_message_for_typed_error(monkeypatch, caplo
             assert "corrompido" in rendered
             assert "restaure um backup" in rendered  # ação específica do caso
             assert "Nenhuma faixa na biblioteca local ainda" not in rendered
-            assert screen.query_one("#library-list", TrackListView).display is False
+            assert screen.query_one("#library-list", LibraryListView).display is False
 
     assert any(
         "Falha ao carregar a biblioteca local" in record.getMessage() for record in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_library_nivel_1_albuns_e_avulsas(monkeypatch):
+    """T17.1/R6: nível 1 = álbuns (título·artista·N faixas) + avulsas."""
+    for vid, title, album in (
+        ("A1", "B do álbum", "Zeta"),
+        ("A4", "C do álbum", "Zeta"),
+        ("A2", "A do álbum", "Alfa"),
+        ("A3", "Avulsa única", ""),
+    ):
+        assert library.ensure_track(vid, title, "Artista", album) is not None
+
+    played: list[TrackInfo] = []
+    monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        tabs = screen.query_one("#main-tabs", TabbedContent)
+        tabs.active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        # Ordem fixada no serviço (casefold): Alfa antes de Zeta.
+        assert [item.album.title for item in view.albums] == ["Alfa", "Zeta"]
+        assert [item.track_count for item in view.albums] == [1, 2]
+        assert [track.title for track in view.singles] == ["Avulsa única"]
+
+        labels = " | ".join(str(child.query_one(Label).render()) for child in view.children)
+        assert "💿 Alfa — Artista  (1 faixa)" in labels
+        assert "💿 Zeta — Artista  (2 faixas)" in labels
+        assert "— Faixas avulsas —" in labels
+        assert "Avulsa única" in labels
+
+        # Enter numa avulsa toca (fila = avulsas visíveis, posição 3).
+        view.focus()
+        await pilot.pause()
+        view.index = 3  # 0/1 = álbuns, 2 = seção, 3 = avulsa
+        await pilot.press("enter")
+        await pilot.pause()
+        assert [info.title for info in played] == ["Avulsa única"]
+        assert [info.title for info in screen._play_queue] == ["Avulsa única"]
+
+
+@pytest.mark.asyncio
+async def test_library_modo_album_expande_toca_e_volta(monkeypatch):
+    """T17.1/R6: Enter expande o álbum; Enter toca com fila em ordem; Esc/← volta."""
+    for vid, title, number in (
+        ("N1", "Terceira", 3),
+        ("N2", "Primeira", 1),
+        ("N3", "Segunda", 2),
+    ):
+        assert (
+            library.ensure_track(vid, title, "Artista", "Álbum Ordenado", track_number=number)
+            is not None
+        )
+
+    played: list[TrackInfo] = []
+    monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        tabs = screen.query_one("#main-tabs", TabbedContent)
+        tabs.active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        header = screen.query_one("#library-album-header", Static)
+        tracks = screen.query_one("#library-album-tracks", TrackListView)
+        assert header.display is True
+        rendered = str(header.render())
+        assert "Álbum Ordenado" in rendered
+        assert "Artista" in rendered
+        assert "3 faixas" in rendered
+        assert [track.title for track in tracks.tracks] == ["Primeira", "Segunda", "Terceira"]
+
+        # "t" toca o álbum desde a primeira faixa, com a fila em ordem (R6).
+        await pilot.press("t")
+        await pilot.pause()
+        assert [info.title for info in played] == ["Primeira"]
+        assert [info.title for info in screen._play_queue] == ["Primeira", "Segunda", "Terceira"]
+        assert screen._play_index == 0
+
+        # Enter na 2ª faixa: toca com a fila NA ORDEM do álbum.
+        tracks.index = 1
+        await pilot.press("enter")
+        await pilot.pause()
+        assert played[-1].title == "Segunda"
+        assert [info.title for info in screen._play_queue] == ["Primeira", "Segunda", "Terceira"]
+        assert screen._play_index == 1
+
+        # ← volta ao nível 1 (mesmo caminho do Esc — desvio documentado).
+        await pilot.press("left")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+        assert view.display is True and header.display is False
+
+        # Esc também volta quando o álbum reabre.
+        await pilot.press("enter")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+        assert header.display is True
+        await pilot.press("escape")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+        assert view.display is True and header.display is False
+
+
+@pytest.mark.asyncio
+async def test_library_ausente_visivel_na_lista_no_album_e_legenda():
+    """T17.1/R7: ausente marcada nos dois níveis, legenda honesta e sem crash."""
+    ids = {
+        vid: library.ensure_track(vid, title, "Artista", "Álbum Ausente")
+        for vid, title in (("M1", "Sumida"), ("M2", "Presente"))
+    }
+    ids["M3"] = library.ensure_track("M3", "Avulsa Sumida")
+    with library.db.session() as session:
+        # Marcadas como a reconciliação faria (§5.3): arquivo não encontrado.
+        session.get(DbTrack, ids["M1"]).is_missing = True
+        session.get(DbTrack, ids["M3"]).is_missing = True
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        tabs = screen.query_one("#main-tabs", TabbedContent)
+        tabs.active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        labels = " | ".join(str(child.query_one(Label).render()) for child in view.children)
+        assert "⚠ 1 ausente" in labels  # álbum com uma faixa ausente
+        assert "⚠ Avulsa Sumida" in labels  # avulsa ausente
+        legend = screen.query_one("#library-legend", Static)
+        assert legend.display is True
+        assert "última reconciliação" in str(legend.render())
+
+        # No álbum: marca na faixa ausente; a presente fica limpa.
+        view.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await screen.refresh_library().wait()
+        await pilot.pause()
+        tracks = screen.query_one("#library-album-tracks", TrackListView)
+        labels = " | ".join(str(child.query_one(Label).render()) for child in tracks.children)
+        assert "⚠ Sumida" in labels
+        assert "⚠ Presente" not in labels
+        assert screen.query_one("#library-legend", Static).display is True
 
 
 def test_bindings_resolve_to_actions():
@@ -2553,11 +2719,12 @@ async def test_ui_responsiva_com_leitura_da_biblioteca_travada(monkeypatch):
     """
     release = threading.Event()
 
-    def _slow_tracks(limit=500):
+    def _slow_albums(limit=500):
         release.wait(timeout=10)
         return []
 
-    monkeypatch.setattr(library, "get_recent_tracks", _slow_tracks)
+    monkeypatch.setattr(library, "list_library_albums", _slow_albums)
+    monkeypatch.setattr(library, "list_standalone_tracks", lambda limit=500: [])
 
     app = YTMusicTUI()
     async with app.run_test(size=(120, 40)) as pilot:
@@ -2590,24 +2757,25 @@ async def test_leitura_antiga_da_biblioteca_nao_pisa_na_mais_nova(monkeypatch):
     entered = threading.Event()
     stale = {"blocked": False}
 
-    class _Track:
+    class _Album:
         def __init__(self, title: str) -> None:
             self.id = 1
-            self.source_id = "vid1"
             self.title = title
-            self.artist_names = ["Artista"]
-            self.is_downloaded = False
-            self.local_path = None
-            self.album = None
+            self.release_year = None
+            self.artists: list = []
 
-    def _tracks(limit=500):
+    def _make_entry(title: str) -> LibraryAlbum:
+        return LibraryAlbum(album=_Album(title), track_count=1, missing_count=0)
+
+    def _albums(limit=500):
         if stale["blocked"]:
             entered.set()
             release.wait(timeout=10)
-            return [_Track("Antiga")]
-        return [_Track("Nova")]
+            return [_make_entry("Antigo")]
+        return [_make_entry("Novo")]
 
-    monkeypatch.setattr(library, "get_recent_tracks", _tracks)
+    monkeypatch.setattr(library, "list_library_albums", _albums)
+    monkeypatch.setattr(library, "list_standalone_tracks", lambda limit=500: [])
 
     app = YTMusicTUI()
     async with app.run_test(size=(120, 40)) as pilot:
@@ -2629,14 +2797,14 @@ async def test_leitura_antiga_da_biblioteca_nao_pisa_na_mais_nova(monkeypatch):
         await captured[1]  # a nova pinta primeiro
         await pilot.pause()
 
-        view = screen.query_one("#library-list", TrackListView)
-        assert [track.title for track in view.tracks] == ["Nova"]
+        view = screen.query_one("#library-list", LibraryListView)
+        assert [entry.album.title for entry in view.albums] == ["Novo"]
 
         release.set()
         await asyncio.wait_for(task_old, timeout=10)
         await pilot.pause()
 
-        assert [track.title for track in view.tracks] == ["Nova"]
+        assert [entry.album.title for entry in view.albums] == ["Novo"]
 
 
 if __name__ == "__main__":

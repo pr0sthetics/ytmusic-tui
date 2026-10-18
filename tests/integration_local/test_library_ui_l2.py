@@ -13,7 +13,7 @@ from textual.widgets import Static
 from ytmusic_tui.library import db_manager
 from ytmusic_tui.library.errors import DatabaseInaccessibleError
 from ytmusic_tui.tui.app import YTMusicTUI
-from ytmusic_tui.tui.widgets import TrackListView
+from ytmusic_tui.tui.widgets import LibraryListView
 
 
 @pytest.mark.asyncio
@@ -40,4 +40,4 @@ async def test_inaccessible_sqlite_shows_error_not_empty_library(tmp_path, monke
         assert "inacessível" in rendered  # ação específica do caso (T05-R4)
         # O caso "biblioteca vazia" NÃO pode aparecer no lugar do erro.
         assert "Nenhuma faixa na biblioteca local ainda" not in rendered
-        assert screen.query_one("#library-list", TrackListView).display is False
+        assert screen.query_one("#library-list", LibraryListView).display is False

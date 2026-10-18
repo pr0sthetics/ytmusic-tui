@@ -38,6 +38,30 @@ class AlbumPlaylistResult:
     album_total: int | None = None
 
 
+@dataclass(frozen=True)
+class LibraryAlbum:
+    """Álbum da biblioteca com o retrato exibido na aba (T17.1/R6/R7).
+
+    ``track_count``/``missing_count`` contam as faixas **na biblioteca** (não
+    o total do álbum na loja) — é o que existe agora, com o aviso "⚠ N
+    ausentes" para o que a última reconciliação não achou no disco.
+    """
+
+    album: Album
+    track_count: int
+    missing_count: int
+
+    @property
+    def primary_artist_name(self) -> str:
+        """Artista principal (primeiro marcado; senão o primeiro da lista)."""
+        for link in self.album.artists:
+            if link.is_primary:
+                return str(link.artist.name)
+        if self.album.artists:
+            return str(self.album.artists[0].artist.name)
+        return ""
+
+
 def _album_track_order() -> list[Any]:
     """Ordenação fiel de faixa de álbum (T17.1/R1/R6).
 
@@ -385,6 +409,78 @@ class LibraryService:
                 .scalars()
                 .all()
             )
+
+    # ===== Visão da biblioteca local (T17.1/R6/R7) =====
+
+    def list_library_albums(self, limit: int = 500) -> list[LibraryAlbum]:
+        """Álbuns com faixas na biblioteca, em ordem de título (T17.1/R6).
+
+        A ordem é fixada aqui (``str.casefold``) — a UI e os testes não
+        dependem do *collation* do SQLite. Álbum sem faixas fica de fora:
+        a lista mostra o que existe; ``missing_count`` alimenta o aviso
+        "⚠ N ausentes" (R7).
+        """
+        with self.db.session() as session:
+            albums = list(
+                session.execute(
+                    select(Album)
+                    .options(
+                        selectinload(Album.artists).selectinload(AlbumArtist.artist),
+                        selectinload(Album.tracks),
+                    )
+                    .order_by(Album.title)
+                    .limit(limit)
+                )
+                .scalars()
+                .all()
+            )
+        summaries = [
+            LibraryAlbum(
+                album=album,
+                track_count=len(album.tracks),
+                missing_count=sum(1 for track in album.tracks if track.is_missing),
+            )
+            for album in albums
+            if album.tracks
+        ]
+        return sorted(summaries, key=lambda item: str(item.album.title).casefold())
+
+    def list_album_tracks(self, album_id: int, limit: int = 500) -> list[Track]:
+        """Faixas de um álbum na ordem de álbum (T17.1/R6/R7)."""
+        with self.db.session() as session:
+            return list(
+                session.execute(
+                    select(Track)
+                    .options(
+                        selectinload(Track.artists).selectinload(TrackArtist.artist),
+                        selectinload(Track.album),
+                    )
+                    .where(Track.album_id == album_id)
+                    .order_by(*_album_track_order())
+                    .limit(limit)
+                )
+                .scalars()
+                .all()
+            )
+
+    def list_standalone_tracks(self, limit: int = 500) -> list[Track]:
+        """Faixas sem álbum ("Faixas avulsas"), em ordem de título (T17.1/R6)."""
+        with self.db.session() as session:
+            tracks = list(
+                session.execute(
+                    select(Track)
+                    .options(
+                        selectinload(Track.artists).selectinload(TrackArtist.artist),
+                        selectinload(Track.album),
+                    )
+                    .where(Track.album_id.is_(None))
+                    .order_by(Track.title)
+                    .limit(limit)
+                )
+                .scalars()
+                .all()
+            )
+        return sorted(tracks, key=lambda track: str(track.title).casefold())
 
     def toggle_like(self, track_id: int) -> bool:
         """Alterna status de 'gostei' da faixa (uma transação — R3/T05)."""

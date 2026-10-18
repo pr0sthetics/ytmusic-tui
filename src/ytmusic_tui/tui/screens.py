@@ -60,6 +60,7 @@ from ytmusic_tui.tui.messages import (
 from ytmusic_tui.tui.playback_controller import PlaybackController
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
+    LibraryListView,
     NowPlayingBar,
     SearchInput,
     SongListView,
@@ -102,10 +103,11 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         Binding("ctrl+s", "search", "Buscar"),
         Binding("space", "play_pause", "Play/Pause"),
         Binding("right", "next", "Próxima"),
-        Binding("left", "previous", "Anterior"),
+        Binding("left", "previous_or_back", "Anterior"),
         Binding("ctrl+d", "download", "Baixar", priority=True),
         Binding("l", "like", "Curtir"),
         Binding("a", "download_album", "Baixar álbum"),
+        Binding("t", "play_album", "Tocar álbum"),
         Binding("r", "retry_download", "Retomar download"),
         Binding("d", "discard_download", "Descartar download"),
         Binding("escape", "back_to_search", "Voltar", show=False),
@@ -165,7 +167,10 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
                 yield Static("[b]📚 Biblioteca local[/b]", classes="section-title")
                 with Vertical(id="library-body"):
                     yield Static(LIBRARY_EMPTY_TEXT, id="library-message")
-                    yield TrackListView(id="library-list")
+                    yield LibraryListView(id="library-list")
+                    yield Static("", id="library-legend")
+                    yield Static("", id="library-album-header", classes="section-title")
+                    yield TrackListView(id="library-album-tracks")
 
             with TabPane("📥 Downloads", id="tab-downloads"):
                 yield Static("[b]Gerenciador de Downloads[/b]", classes="section-title")
@@ -248,6 +253,10 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         self.query_one("#search-albums-title", Static).display = False
         self.query_one("#album-songs", SongListView).display = False
         self.query_one("#btn-download-album", Button).display = False
+        # Biblioteca: o detalhe do álbum (R6) só aparece com um álbum aberto.
+        self.query_one("#library-album-header", Static).display = False
+        self.query_one("#library-album-tracks", TrackListView).display = False
+        self.query_one("#library-legend", Static).display = False
         # A aba de álbum só aparece quando um álbum é aberto pela busca.
         self._set_album_tab_visible(False)
         self.refresh_library()
@@ -407,12 +416,25 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         self._switch_tab("tab-library")
         self.refresh_library()
 
+    def action_play_album(self) -> None:
+        """Toca o álbum aberto na Biblioteca desde a primeira faixa (R6).
+
+        A fila é a ordem do álbum; só vale no modo álbum da aba Biblioteca
+        (fora dele ``check_action`` desativa a tecla — ``t`` não vira atalho
+        solto pelo app).
+        """
+        tracks = self._library_visible_tracks()
+        if not tracks:
+            return
+        self.play_library_track(tracks[0])
+
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Disponibilidade de ações por tela (T12-R1).
 
         ``r`` (retomar) e ``d`` (descartar) só existem na aba 📥 Downloads:
         fora dela o atalho fica inativo — uma letra digitada em outro
         contexto não dispara comando de download (nem toast fora de hora).
+        ``t`` (tocar álbum) só vale com um álbum aberto na Biblioteca (R6).
         """
         if action in ("retry_download", "discard_download"):
             try:
@@ -420,6 +442,12 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
             except Exception:
                 return False
             return bool(tabs.active == "tab-downloads")
+        if action == "play_album":
+            try:
+                tabs = self.query_one("#main-tabs", TabbedContent)
+            except Exception:
+                return False
+            return bool(tabs.active == "tab-library" and self.library_album_open())
         return True
 
     def action_help(self) -> None:
@@ -427,11 +455,35 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         self.app.push_screen(HelpScreen([*self.app.BINDINGS, *self.BINDINGS]))
 
     def action_back_to_search(self) -> None:
-        """Esc na aba de álbum volta para a busca (pronto para digitar)."""
+        """Esc: volta um nível (aba 💿 Álbum → Busca; álbum da Biblioteca → nível 1)."""
         tabs = self.query_one("#main-tabs", TabbedContent)
         if tabs.active == "tab-album":
             self._switch_tab("tab-search")
             self.call_after_refresh(self._focus_search)
+        elif tabs.active == "tab-library" and self.library_album_open():
+            self.close_library_album()
+
+    def action_previous_or_back(self) -> None:
+        """← : volta um nível na Biblioteca; fora dela, faixa anterior (R6).
+
+        A tecla ← mantém o papel de "faixa anterior" na reprodução; dentro
+        do modo álbum da Biblioteca ela é o gesto de voltar pedido no R6
+        (mesmo caminho do Esc).
+        """
+        if self._inner_level_open():
+            self.action_back_to_search()
+            return
+        self.action_previous()
+
+    def _inner_level_open(self) -> bool:
+        """True quando há um nível interno aberto com gesto de voltar (R6)."""
+        try:
+            tabs = self.query_one("#main-tabs", TabbedContent)
+        except Exception:
+            return False
+        if tabs.active == "tab-library":
+            return self.library_album_open()
+        return False
 
     def _toast(self, message: str) -> None:
         """Mostra uma notificação (respeitando settings.show_notifications)."""
@@ -554,6 +606,15 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
             album = view.get_selected_album()
             if album:
                 self.open_album(album.browse_id, album)
+        elif isinstance(view, LibraryListView):
+            # R6: Enter num álbum expande dentro da aba; numa avulsa, toca.
+            album_entry = view.get_selected_album()
+            if album_entry is not None:
+                self.open_library_album(album_entry)
+                return
+            track = view.get_selected_track()
+            if track:
+                self.play_library_track(track)
         elif isinstance(view, TrackListView):
             track = view.get_selected_track()
             if track:

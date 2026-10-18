@@ -10,10 +10,30 @@ from textual.widgets import Button, Input, Label, ListItem, ListView, ProgressBa
 
 from ytmusic_tui.api.models import Album, Track
 from ytmusic_tui.library.models import Track as LibraryTrack
+from ytmusic_tui.library.service import LibraryAlbum
 from ytmusic_tui.player import PlayerState, TrackInfo
-from ytmusic_tui.tui.messages import PLAYER_ERROR_TEXT, PLAYER_LOADING_TEXT, escape_markup
+from ytmusic_tui.tui.messages import (
+    MISSING_MARK,
+    PLAYER_ERROR_TEXT,
+    PLAYER_LOADING_TEXT,
+    SINGLES_SECTION_TEXT,
+    escape_markup,
+)
 
 _WidgetT = TypeVar("_WidgetT", bound=Widget)
+
+
+def _library_track_label(track: LibraryTrack) -> str:
+    """Rótulo de faixa da biblioteca — com a marca de ausente (T17.1/R7).
+
+    A marca vem primeiro para sobreviver ao truncamento da linha larga;
+    a legenda abaixo da lista explica o significado.
+    """
+    artists = ", ".join(track.artist_names)
+    label = f"{track.title} — {artists}" if artists else str(track.title)
+    if track.is_missing:
+        label = f"{MISSING_MARK} {label}"
+    return label
 
 
 class AutoHighlightListView(ListView):
@@ -39,19 +59,76 @@ class TrackListView(AutoHighlightListView):
     def set_tracks(self, tracks: list[LibraryTrack]) -> None:
         """Atualiza a lista sem remontar o widget (evita ``DuplicateIds``).
 
-        Os itens são recriados in-place; por isso não usam ``id``.
+        Os itens são recriados in-place; por isso não usam ``id``. A marca
+        de ausente (R7) também vale para as faixas de playlist.
         """
         self.tracks = list(tracks)
         self.clear()
         for track in self.tracks:
-            artists = ", ".join(track.artist_names)
-            label = f"{track.title} — {artists}" if artists else track.title
-            self.append(ListItem(Label(label, markup=False)))
+            self.append(ListItem(Label(_library_track_label(track), markup=False)))
 
     def get_selected_track(self) -> LibraryTrack | None:
         """Retorna faixa selecionada."""
         if self.index is not None and 0 <= self.index < len(self.tracks):
             return self.tracks[self.index]
+        return None
+
+
+class LibraryListView(AutoHighlightListView):
+    """Nível 1 da biblioteca: álbuns + seção de faixas avulsas (T17.1/R6).
+
+    Cada linha guarda o próprio payload (``LibraryAlbum`` ou faixa) para o
+    Enter decidir entre abrir o álbum e tocar a faixa; a seção "Faixas
+    avulsas" é um item desabilitado — a navegação pula direto para as faixas.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.albums: list[LibraryAlbum] = []
+        self.singles: list[LibraryTrack] = []
+        self._entries: list[LibraryAlbum | LibraryTrack | None] = []
+
+    def set_entries(self, albums: list[LibraryAlbum], singles: list[LibraryTrack]) -> None:
+        """Atualiza a lista in-place (sem ``id`` nos itens — T12-R2)."""
+        self.albums = list(albums)
+        self.singles = list(singles)
+        self._entries = []
+        self.clear()
+        for album in self.albums:
+            self._entries.append(album)
+            self.append(ListItem(Label(self._album_label(album), markup=False)))
+        if self.singles:
+            self._entries.append(None)  # cabeçalho de seção (desabilitado)
+            self.append(ListItem(Label(SINGLES_SECTION_TEXT), disabled=True))
+            for track in self.singles:
+                self._entries.append(track)
+                self.append(ListItem(Label(_library_track_label(track), markup=False)))
+
+    @staticmethod
+    def _album_label(entry: LibraryAlbum) -> str:
+        label = f"💿 {entry.album.title}"
+        if entry.primary_artist_name:
+            label += f" — {entry.primary_artist_name}"
+        count = entry.track_count
+        label += f"  ({'1 faixa' if count == 1 else f'{count} faixas'})"
+        if entry.missing_count:
+            suffix = "ausente" if entry.missing_count == 1 else "ausentes"
+            label += f"  {MISSING_MARK} {entry.missing_count} {suffix}"
+        return label
+
+    def get_selected_album(self) -> LibraryAlbum | None:
+        """Álbum da linha selecionada (None em avulsa ou na seção)."""
+        entry = self._selected_entry()
+        return entry if isinstance(entry, LibraryAlbum) else None
+
+    def get_selected_track(self) -> LibraryTrack | None:
+        """Faixa avulsa da linha selecionada (None em álbum ou na seção)."""
+        entry = self._selected_entry()
+        return entry if isinstance(entry, LibraryTrack) else None
+
+    def _selected_entry(self) -> LibraryAlbum | LibraryTrack | None:
+        if self.index is not None and 0 <= self.index < len(self._entries):
+            return self._entries[self.index]
         return None
 
 

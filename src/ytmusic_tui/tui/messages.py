@@ -279,6 +279,11 @@ LIBRARY_LIKE_NEEDS_DOWNLOAD = "Baixe a faixa primeiro (Ctrl+D) para curtí-la na
 LIKE_ADDED = "❤️ Curtida (local)"
 LIKE_REMOVED = "Removida das curtidas (local)"
 
+#: Marca de faixa ausente nas listas — legenda honesta junto da lista (R7).
+MISSING_MARK = "⚠"
+MISSING_LEGEND_TEXT = f"{MISSING_MARK} arquivo não encontrado na última reconciliação"
+SINGLES_SECTION_TEXT = "— Faixas avulsas —"
+
 
 # --- Downloads e player (estados §12.2) ---
 DOWNLOADS_EMPTY_TEXT = (
