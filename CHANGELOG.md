@@ -6,6 +6,15 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Corrigido
+
+- Workflow de release: a conferência do conteúdo dos artefatos não usa mais
+  `… | grep -q` (o `grep` sai no primeiro match e o produtor — `unzip`/`tar`
+  — morria com SIGPIPE; sob `pipefail`, o step caía). Pego no primeiro uso
+  real do processo, em 2026-10-18, com a Release ainda em rascunho — nada
+  quebrado ficou público; o `ci.yml` usava o mesmo padrão (mascarado pela
+  ausência de `pipefail`) e recebeu a mesma correção
+
 ## [0.1.5] - 2026-10-17
 
 ### Adicionado

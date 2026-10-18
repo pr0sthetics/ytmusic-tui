@@ -141,8 +141,14 @@ jobs:
           set -euo pipefail
           test -f "dist/ytmusic_tui-${VERSION}-py3-none-any.whl"
           test -f "dist/ytmusic_tui-${VERSION}.tar.gz"
-          unzip -l dist/*.whl | grep -q 'ytmusic_tui/tui/app.tcss'
-          tar tzf dist/*.tar.gz | grep -q 'ytmusic_tui/tui/app.tcss'
+          # Sem `| grep -q`: o grep sai no primeiro match e o produtor
+          # (unzip/tar) toma SIGPIPE na escrita seguinte — com `pipefail`
+          # isso derruba o step (pego no primeiro uso real do processo,
+          # 2026-10-18, com a Release ainda em rascunho). Lista → confere.
+          LISTA_WHEEL="$(unzip -l dist/*.whl)"
+          grep -q 'ytmusic_tui/tui/app.tcss' <<<"$LISTA_WHEEL"
+          LISTA_SDIST="$(tar tzf dist/*.tar.gz)"
+          grep -q 'ytmusic_tui/tui/app.tcss' <<<"$LISTA_SDIST"
 
       - name: Hashes SHA-256
         run: |

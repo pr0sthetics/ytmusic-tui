@@ -206,7 +206,11 @@ gh release view vX.Y.Z
 
 `workflow_dispatch` existe para **re-execução**: conserta um rascunho que
 falhou na verificação; se a release já estiver pública, ele apenas
-reverifica o que está publicado (sem tocar nos artefatos).
+reverifica o que está publicado (sem tocar nos artefatos). Falha **antes**
+de criar a Release (guarda de CI, build, conferência de artefatos) também
+se recupera assim: corrige-se o defeito em `main`, em commit novo
+(fix-forward — a tag nunca se move), e o dispatch reconstrói o rascunho do
+zero a partir da tag.
 
 ## Instabilidade externa do L4 — regra de repetição (Q17)
 

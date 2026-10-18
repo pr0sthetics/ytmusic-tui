@@ -133,8 +133,14 @@ jobs:
       # instalar. Este é o gate que faltava.
       - name: Conferir conteúdo do pacote (app.tcss no wheel e no sdist)
         run: |
-          unzip -l dist/*.whl | grep -q 'ytmusic_tui/tui/app.tcss'
-          tar tzf dist/*.tar.gz | grep -q 'ytmusic_tui/tui/app.tcss'
+          # Sem `| grep -q`: o grep sai no primeiro match e o produtor
+          # (unzip/tar) toma SIGPIPE na escrita seguinte (o `pipefail` do
+          # release.yml expôs isso em 2026-10-18; aqui ficava mascarado pela
+          # ausência de pipefail — mesma correção). Lista → confere.
+          LISTA_WHEEL="$(unzip -l dist/*.whl)"
+          grep -q 'ytmusic_tui/tui/app.tcss' <<<"$LISTA_WHEEL"
+          LISTA_SDIST="$(tar tzf dist/*.tar.gz)"
+          grep -q 'ytmusic_tui/tui/app.tcss' <<<"$LISTA_SDIST"
 
       # T14-R1: o sdist também é instalado do zero (primeira cobertura
       # deste caminho) — até aqui só o wheel era exercitado.
