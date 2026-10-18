@@ -6,6 +6,8 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.2.1] - 2026-10-18
+
 ### Corrigido
 
 - `Shift+P` (álbum → playlist) agora funciona também com o álbum apenas
