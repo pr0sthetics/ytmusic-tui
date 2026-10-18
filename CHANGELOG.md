@@ -6,6 +6,10 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Documentado
+
+- README: a troca de tema pelo **command palette** (`Ctrl+P` ou o botão ⭘ do cabeçalho → **Theme**) entra nos destaques, na tabela de atalhos e numa nota da configuração — sem persistência: vale para a sessão
+
 ## [0.2.2] - 2026-10-18
 
 ### Corrigido

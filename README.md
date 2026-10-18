@@ -26,6 +26,7 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 - 📊 **Downloads** tab with real-time progress and configurable simultaneous downloads
 - 🚫 **No login**: search, playback and download all operate anonymously
 - ⌨️ Responsive **Textual** interface, with mouse support (tabs, lists, buttons) and vim-style shortcuts
+- 🎨 **Themes** from the command palette: `Ctrl+P` (or the ⭘ button in the header) → **Theme** switches to any of Textual's built-in themes (Dracula, Nord, Gruvbox, Catppuccin, Solarized, Tokyo Night, dark/light variants); the choice applies to the current session
 - ⚡ **Lightweight**: no Electron, no browser — just Python + mpv (~90 MB of memory at startup, proportional share; ~125 MB RSS)
 
 ## 📸 Screenshots
@@ -204,6 +205,8 @@ mkdir -p ~/.config/ytmusic-tui
 cp config.example.toml ~/.config/ytmusic-tui/config.toml
 ```
 
+One thing that isn't a config file setting: the **theme** — switch it live in the command palette (`Ctrl+P` → **Theme**; it applies to the current session).
+
 ### 4. Updating and downgrading
 
 **Updating** (installs from the git URL follow the default branch):
@@ -304,6 +307,7 @@ python main.py           # straight from the source tree (uses src/, no install)
 | `L` | Like / unlike (local, for downloaded tracks) |
 | `Ctrl+L` | Go to the library |
 | `F1` | Help |
+| `Ctrl+P` | Open the command palette — theme, keys, screenshot |
 | `Ctrl+Q` | Quit |
 
 The mouse works too: click on tabs, results and buttons.
