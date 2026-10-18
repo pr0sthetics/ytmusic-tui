@@ -1,17 +1,19 @@
 """Widgets personalizados usados pelas telas da TUI."""
 
-import contextlib
-from typing import Any
+from typing import Any, TypeVar
 
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal
+from textual.widget import Widget
 from textual.widgets import Button, Input, Label, ListItem, ListView, ProgressBar, Static
 
 from ytmusic_tui.api.models import Album, Track
 from ytmusic_tui.library.models import Track as LibraryTrack
 from ytmusic_tui.player import PlayerState, TrackInfo
 from ytmusic_tui.tui.messages import PLAYER_ERROR_TEXT, PLAYER_LOADING_TEXT, escape_markup
+
+_WidgetT = TypeVar("_WidgetT", bound=Widget)
 
 
 class AutoHighlightListView(ListView):
@@ -136,6 +138,19 @@ class NowPlayingBar(Static):
         super().__init__(*args, **kwargs)
         self.current_track: TrackInfo | None = None
 
+    def _child(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT | None:
+        """Filho por seletor — ou ``None`` se a subárvore já foi podada (Q20).
+
+        No teardown o Textual remove os filhos da barra antes de a fila de
+        mensagens parar de drenar; ``query_one`` levantaria ``NoMatches`` e
+        derrubaria o app (flake do L2, run 39132588234). Sem match, o update
+        é simplesmente ignorado — a semântica normal não muda.
+        """
+        matches = self.query(selector)
+        if not matches:
+            return None
+        return matches.first(expect_type)
+
     def compose(self) -> ComposeResult:
         yield Horizontal(
             Static("", id="np-info"),
@@ -158,7 +173,9 @@ class NowPlayingBar(Static):
     def update_track(self, track: TrackInfo) -> None:
         """Atualiza faixa em reprodução."""
         self.current_track = track
-        info = self.query_one("#np-info", Static)
+        info = self._child("#np-info", Static)
+        if info is None:
+            return
         # escape_markup(): o título/artista vêm do YouTube e podem conter
         # [colchetes] que o parser de markup do Textual comeria (T12-R6).
         info.update(f"[b]{escape_markup(track.title)}[/b] — {escape_markup(track.artist)}")
@@ -172,19 +189,25 @@ class NowPlayingBar(Static):
         (o essencial de tocar/pausar) ficam sempre visíveis.
         """
         width = event.size.width
-        with contextlib.suppress(Exception):
-            self.query_one("#np-volume", Static).display = width >= 100
-            self.query_one("#np-progress-container", Horizontal).display = width >= 68
+        volume = self._child("#np-volume", Static)
+        if volume is not None:
+            volume.display = width >= 100
+        progress = self._child("#np-progress-container", Horizontal)
+        if progress is not None:
+            progress.display = width >= 68
 
     def update_position(self, position: float, duration: float) -> None:
         """Atualiza posição da reprodução."""
-        progress = self.query_one("#np-progress", ProgressBar)
-        time_current = self.query_one("#np-time-current", Static)
-        time_total = self.query_one("#np-time-total", Static)
+        progress = self._child("#np-progress", ProgressBar)
+        time_current = self._child("#np-time-current", Static)
+        time_total = self._child("#np-time-total", Static)
 
-        progress.progress = (position / duration * 100) if duration > 0 else 0
-        time_current.update(self._format_time(position))
-        time_total.update(self._format_time(duration))
+        if progress is not None:
+            progress.progress = (position / duration * 100) if duration > 0 else 0
+        if time_current is not None:
+            time_current.update(self._format_time(position))
+        if time_total is not None:
+            time_total.update(self._format_time(duration))
 
     def update_state(self, state: PlayerState) -> None:
         """Atualiza o botão play/pause e o texto de estado (§12.2/T11-R3).
@@ -196,23 +219,28 @@ class NowPlayingBar(Static):
         detalhe mascarado; um novo ``play`` chama ``update_track`` e substitui
         o texto).
         """
-        btn = self.query_one("#btn-play-pause", Button)
-        if state == PlayerState.PLAYING:
-            btn.label = "⏸"
-        elif state == PlayerState.LOADING:
-            btn.label = "⏳"
-        elif state == PlayerState.ERROR:
-            btn.label = "⚠"
-        else:
-            btn.label = "▶"
-        if state == PlayerState.ERROR:
-            self.query_one("#np-info", Static).update(f"[b]{PLAYER_ERROR_TEXT}[/b]")
-        elif state == PlayerState.LOADING:
-            self.query_one("#np-info", Static).update(PLAYER_LOADING_TEXT)
+        btn = self._child("#btn-play-pause", Button)
+        if btn is not None:
+            if state == PlayerState.PLAYING:
+                btn.label = "⏸"
+            elif state == PlayerState.LOADING:
+                btn.label = "⏳"
+            elif state == PlayerState.ERROR:
+                btn.label = "⚠"
+            else:
+                btn.label = "▶"
+        info = self._child("#np-info", Static)
+        if info is not None:
+            if state == PlayerState.ERROR:
+                info.update(f"[b]{PLAYER_ERROR_TEXT}[/b]")
+            elif state == PlayerState.LOADING:
+                info.update(PLAYER_LOADING_TEXT)
 
     def update_volume(self, volume: int) -> None:
         """Atualiza volume."""
-        vol_widget = self.query_one("#np-volume", Static)
+        vol_widget = self._child("#np-volume", Static)
+        if vol_widget is None:
+            return
         icon = "🔇" if volume == 0 else "🔈" if volume < 30 else "🔉" if volume < 70 else "🔊"
         vol_widget.update(f"{icon} {volume}%")
 

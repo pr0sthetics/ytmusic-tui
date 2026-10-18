@@ -141,8 +141,24 @@ class YTMusicTUI(App):
         self.post_message(PlayerEventMessage(event))
 
     def on_player_event_message(self, message: PlayerEventMessage) -> None:
-        """Entrega na thread da UI o evento que nasceu na thread do libmpv."""
+        """Entrega na thread da UI o evento que nasceu na thread do libmpv.
+
+        T17.1/Q20: durante o teardown a fila ainda drena por um instante,
+        mas a árvore já foi podada — o evento tardio é descartado; não há
+        UI para atualizar (a blindagem da ``NowPlayingBar`` cobre o resto).
+        """
+        if self._is_shutting_down():
+            return
         self._handle_player_event(message.event)
+
+    def _is_shutting_down(self) -> bool:
+        """True quando o app está fechando (Q20/T17.1).
+
+        No teardown do Textual ``_running`` vira ``False`` no início do
+        ``_shutdown``, antes de as telas serem podadas — é o discriminador
+        exato da janela em que a mensagem não tem mais onde pintar.
+        """
+        return not self.is_running
 
     def _current_main_screen(self) -> MainScreen | None:
         """Tela principal ativa, ou ``None`` se não houver tela na pilha.

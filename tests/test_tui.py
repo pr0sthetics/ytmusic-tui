@@ -38,7 +38,7 @@ from ytmusic_tui.library.migrations import SCHEMA_VERSION
 from ytmusic_tui.library.recovery import ReconciliationReport
 from ytmusic_tui.player import PlayerEvent, TrackInfo, player
 from ytmusic_tui.tui import download_controller, library_controller
-from ytmusic_tui.tui.app import MainScreen, YTMusicTUI
+from ytmusic_tui.tui.app import MainScreen, PlayerEventMessage, YTMusicTUI
 from ytmusic_tui.tui.dialogs import ConfirmScreen, HelpScreen
 from ytmusic_tui.tui.messages import format_key
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
@@ -2229,6 +2229,61 @@ async def test_estados_da_barra_do_player(monkeypatch):
         app._handle_player_event(PlayerEvent(event="stop"))
         assert "Faixa Teste" not in str(info.render())
         assert "⏸" not in str(btn.label) and "⚠" not in str(btn.label)
+
+
+@pytest.mark.asyncio
+async def test_barra_podada_no_teardown_nao_quebra(monkeypatch):
+    """Q20/T17.1: barra presente com filhos podados não estoura ``NoMatches``.
+
+    Força a janela exata do teardown (flake do L2, run 39132588234): a
+    árvore já foi podada — a ``NowPlayingBar`` segue na pilha, os filhos
+    não — e a fila de mensagens ainda drena. Um evento do player processado
+    nesse instante estourava ``NoMatches`` em ``#btn-play-pause`` e derrubava
+    o app. A barra precisa ignorar updates quando já não tem filhos.
+    """
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        bar = screen.query_one("#now-playing", NowPlayingBar)
+
+        # O que o teardown faz primeiro: os filhos da barra saem (ela fica).
+        await bar.remove_children()
+        assert len(bar.query("#btn-play-pause")) == 0
+
+        # Mensagem NA FILA (o evento "resume" do flake) + os demais estados.
+        app.post_message(PlayerEventMessage(PlayerEvent(event="resume", data={})))
+        await pilot.pause(0.1)
+        app._handle_player_event(PlayerEvent(event="loading", data={}))
+        app._handle_player_event(
+            PlayerEvent(event="play", data={"track": TrackInfo(video_id="v1", title="T")})
+        )
+        app._handle_player_event(
+            PlayerEvent(event="position", data={"position": 1.0, "duration": 2.0})
+        )
+        app._handle_player_event(PlayerEvent(event="pause", data={}))
+        app._handle_player_event(PlayerEvent(event="stop", data={}))
+        app._handle_player_event(PlayerEvent(event="error", data={"message": "boom"}))
+
+
+@pytest.mark.asyncio
+async def test_player_event_message_descartado_no_fechamento(monkeypatch):
+    """Q20/T17.1: com o app fechando, a mensagem na fila é descartada.
+
+    O guarda corta o trabalho cedo: durante o teardown não há UI para
+    atualizar — o evento tardio nem chega a tocar a barra.
+    """
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        entregues: list[PlayerEvent] = []
+        monkeypatch.setattr(app, "_handle_player_event", entregues.append)
+        monkeypatch.setattr(app, "_is_shutting_down", lambda: True, raising=False)
+
+        app.on_player_event_message(PlayerEventMessage(PlayerEvent(event="resume")))
+
+        assert entregues == []
 
 
 @pytest.mark.asyncio
