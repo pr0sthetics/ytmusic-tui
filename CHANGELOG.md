@@ -6,6 +6,8 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.2.2] - 2026-10-18
+
 ### Corrigido
 
 - Ajuda (`F1`): a tecla do álbum → playlist aparece como **`Shift+P`** —
