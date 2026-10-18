@@ -6,7 +6,12 @@ from textual.widgets import DataTable, Static
 from textual.worker import Worker
 
 from ytmusic_tui.api.models import AlbumDetail
-from ytmusic_tui.download import DownloadStatus, DownloadTask, download_manager
+from ytmusic_tui.download import (
+    DownloadOutcome,
+    DownloadStatus,
+    DownloadTask,
+    download_manager,
+)
 from ytmusic_tui.library import library
 from ytmusic_tui.player import TrackInfo, player
 from ytmusic_tui.tui.dialogs import ConfirmScreen
@@ -16,6 +21,7 @@ from ytmusic_tui.tui.messages import (
     CONFIRM_DISCARD_CANCELLED,
     DISCARD_FAILED,
     DISCARD_REQUIRES_INTERRUPTED,
+    DOWNLOAD_EXISTING_ADOPTED,
     NO_TRACK_PLAYING,
     RETRY_FAILED,
     RETRY_REQUIRES_INTERRUPTED,
@@ -28,6 +34,7 @@ from ytmusic_tui.tui.messages import (
     discarded_download,
     download_cancelled,
     download_completed,
+    download_existing_adopted,
     download_failed,
     download_starting,
     interrupted_downloads,
@@ -99,7 +106,9 @@ class DownloadController:
         table.display = bool(rows)
         message.display = not rows
         table.clear(columns=True)
-        table.add_columns("Status", "Título", "Artista", "Progresso", "Velocidade", "ETA")
+        table.add_columns(
+            "Status", "Desfecho", "Título", "Artista", "Progresso", "Velocidade", "ETA"
+        )
 
         for task in rows:
             status_icon = {
@@ -111,8 +120,17 @@ class DownloadController:
                 DownloadStatus.CANCELLED: "🚫",
                 DownloadStatus.INTERRUPTED: "⏸️",
             }.get(task.status, "?")
+            # Q2(a)/R8: o desfecho qualificado tem coluna própria — o que
+            # veio do disco (arquivo já existente) não se confunde com o
+            # que foi baixado agora.
+            outcome = (
+                DOWNLOAD_EXISTING_ADOPTED
+                if task.outcome is DownloadOutcome.EXISTING_ADOPTED
+                else ""
+            )
             table.add_row(
                 status_icon,
+                outcome,
                 task.title[:40],
                 task.artist[:30],
                 f"{task.progress:.1f}%" if task.progress else "—",
@@ -339,7 +357,12 @@ class DownloadController:
         await download_manager.download(task)
         self.update_downloads_table()
         if task.status == DownloadStatus.COMPLETED:
-            self._toast(download_completed(task.title))
+            # R8: desfecho próprio quando o arquivo do destino já existia
+            # (Q2(a) — validado e registrado sem baixar; nada foi baixado).
+            if task.outcome is DownloadOutcome.EXISTING_ADOPTED:
+                self._toast(download_existing_adopted(task.title))
+            else:
+                self._toast(download_completed(task.title))
             self.refresh_library()
         elif task.status == DownloadStatus.FAILED:
             self._toast(download_failed(task.error or "sem detalhe"))

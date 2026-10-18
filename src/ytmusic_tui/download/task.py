@@ -29,11 +29,24 @@ from uuid import uuid4
 
 __all__ = [
     "ACTIVE_STATUSES",
+    "DownloadOutcome",
     "DownloadStatus",
     "DownloadTask",
     "InvalidTransitionError",
     "TERMINAL_STATUSES",
 ]
+
+
+class DownloadOutcome(StrEnum):
+    """Desfecho qualificado da tarefa (T17.1/R8 — complemento visível da Q2(a)).
+
+    A política não muda (nunca sobrescreve): isto só torna visível **como**
+    a tarefa terminou. ``EXISTING_ADOPTED`` = o arquivo de destino já existia;
+    foi validado e registrado sem baixar.
+    """
+
+    NONE = ""
+    EXISTING_ADOPTED = "existing_adopted"
 
 
 class DownloadStatus(StrEnum):
@@ -114,6 +127,9 @@ class DownloadTask:
     disc_number: int | None = None
     # Total de faixas do álbum quando conhecido (R2/R5): vira Album.track_count.
     album_track_count: int | None = None
+    # Como a tarefa terminou (T17.1/R8): COMPLETED normal vs. arquivo de
+    # destino já existente importado sem baixar (Q2(a)).
+    outcome: DownloadOutcome = DownloadOutcome.NONE
     # Identificador estável da tarefa (T02-R1): o log e a recuperação (T04)
     # correlacionam eventos por ele; retentativa gera novo id.
     id: str = field(default_factory=lambda: f"task-{uuid4().hex[:12]}")

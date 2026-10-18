@@ -39,6 +39,7 @@ from ytmusic_tui.download.store import DownloadTaskStore, hydrate_interrupted
 # re-exportados aqui para os imports existentes (TUI, testes).
 from ytmusic_tui.download.task import (
     ACTIVE_STATUSES,
+    DownloadOutcome,
     DownloadStatus,
     DownloadTask,
     InvalidTransitionError,
@@ -54,6 +55,7 @@ from ytmusic_tui.urls import WATCH_URL_TEMPLATE as WATCH_URL
 
 __all__ = [
     "DownloadManager",
+    "DownloadOutcome",
     "DownloadStatus",
     "DownloadTask",
     "InvalidTransitionError",
@@ -415,6 +417,9 @@ class DownloadManager:
         if not task.can_transition_to(DownloadStatus.COMPLETED):
             return task
         task.transition_to(DownloadStatus.COMPLETED)
+        # T17.1/R8: o desfecho fica registrado na tarefa — a aba Downloads
+        # mostra "Já existia" em vez de fingir que baixou.
+        task.outcome = DownloadOutcome.EXISTING_ADOPTED
         log_event("download", "download_finished", "Download concluído", operation_id=task.id)
         return task
 

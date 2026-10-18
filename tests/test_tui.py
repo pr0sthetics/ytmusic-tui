@@ -26,7 +26,12 @@ from tests.security._fakes import FakeDownloadError, FakeYoutubeDL, fake_yt_dlp
 from ytmusic_tui.api import ytmusic
 from ytmusic_tui.api.models import Album, AlbumDetail, SearchResult, Track
 from ytmusic_tui.config import settings
-from ytmusic_tui.download import DownloadStatus, DownloadTask, download_manager
+from ytmusic_tui.download import (
+    DownloadOutcome,
+    DownloadStatus,
+    DownloadTask,
+    download_manager,
+)
 from ytmusic_tui.errors import InvalidResponseError, NetworkError, RateLimitError
 from ytmusic_tui.library import db_manager, library
 from ytmusic_tui.library.errors import (
@@ -2187,6 +2192,7 @@ async def test_estados_da_aba_downloads(monkeypatch):
         done = DownloadTask(video_id="b", title="Feita", id="t-ok")
         for status in (DownloadStatus.RUNNING, DownloadStatus.VALIDATING, DownloadStatus.COMPLETED):
             done.transition_to(status)
+        done.outcome = DownloadOutcome.EXISTING_ADOPTED  # R8: adotada do disco
         failed = DownloadTask(video_id="c", title="Quebrada", id="t-fail")
         failed.transition_to(DownloadStatus.RUNNING)
         failed.transition_to(DownloadStatus.FAILED)
@@ -2199,6 +2205,50 @@ async def test_estados_da_aba_downloads(monkeypatch):
         assert table.row_count == 2
         joined = str([table.get_row_at(i) for i in range(2)])
         assert "✅" in joined and "❌" in joined
+        # T17.1/R8: o desfecho da adoção tem coluna própria ("Já existia").
+        assert "Já existia" in str(table.get_row_at(0))
+        assert "Já existia" not in str(table.get_row_at(1))
+
+
+@pytest.mark.asyncio
+async def test_desfecho_ja_existia_tem_toast_proprio(monkeypatch):
+    """T17.1/R8: concluído por adoção (Q2a) não se confunde com baixado agora."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        async def _fake_download(task):  # worker fake: a tarefa já terminou
+            return task
+
+        monkeypatch.setattr(download_manager, "download", _fake_download)
+        monkeypatch.setattr(download_manager, "get_queue", lambda: [])
+        monkeypatch.setattr(download_manager, "get_active_downloads", lambda: [])
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+
+        adopted = DownloadTask(video_id="d", title="Veio do disco")
+        for status in (
+            DownloadStatus.RUNNING,
+            DownloadStatus.VALIDATING,
+            DownloadStatus.COMPLETED,
+        ):
+            adopted.transition_to(status)
+        adopted.outcome = DownloadOutcome.EXISTING_ADOPTED
+
+        await screen._run_download(adopted)
+        assert any("Já existia" in t and "sem baixar" in t for t in toasts)
+
+        # Download de verdade continua com o toast normal.
+        downloaded = DownloadTask(video_id="e", title="Baixada")
+        for status in (
+            DownloadStatus.RUNNING,
+            DownloadStatus.VALIDATING,
+            DownloadStatus.COMPLETED,
+        ):
+            downloaded.transition_to(status)
+        await screen._run_download(downloaded)
+        assert any("Download concluído" in t for t in toasts)
 
 
 @pytest.mark.asyncio

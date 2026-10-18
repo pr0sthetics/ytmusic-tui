@@ -256,6 +256,15 @@ def download_completed(title: str) -> str:
     return f"✅ Download concluído: {title}"
 
 
+def download_existing_adopted(title: str) -> str:
+    """Desfecho Q2(a)/R8: arquivo do destino já existia — registrado sem baixar."""
+    return f"♻️ Já existia — validado e registrado sem baixar: {title}"
+
+
+#: Rótulo curto do mesmo desfecho na tabela de downloads (coluna Desfecho).
+DOWNLOAD_EXISTING_ADOPTED = "Já existia"
+
+
 def download_cancelled(title: str) -> str:
     return f"Download cancelado: {title}"
 

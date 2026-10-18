@@ -36,7 +36,7 @@ import pytest
 
 import ytmusic_tui.download as download_mod
 import ytmusic_tui.download.pipeline as pipeline_mod
-from ytmusic_tui.download import DownloadStatus, DownloadTask
+from ytmusic_tui.download import DownloadOutcome, DownloadStatus, DownloadTask
 from ytmusic_tui.download.pipeline import release, reserve
 from ytmusic_tui.download.store import DownloadTaskStore
 from ytmusic_tui.library.database import DatabaseManager
@@ -858,6 +858,8 @@ def test_existing_valid_file_is_adopted_not_downloaded(manager, monkeypatch, tmp
     assert result.status is DownloadStatus.COMPLETED
     assert final.read_bytes() == b"audio-do-usuario"  # nunca sobrescreve
     assert result.file_path == final
+    # R8: o desfecho fica registrado — adotado ≠ baixado.
+    assert result.outcome is DownloadOutcome.EXISTING_ADOPTED
     # Registro garantido: faixa criada (ensure_track) se faltar e arquivo vinculado
     assert ensures and ensures[0]["artist"] == "A" and ensures[0]["album"] == "Alb"
     # bitrate 0 no import: desconhecido sem reanalisar o arquivo
@@ -881,6 +883,7 @@ def test_existing_invalid_file_fails_without_overwrite(manager, monkeypatch, tmp
 
     assert result.status is DownloadStatus.FAILED
     assert "inválido" in result.error
+    assert result.outcome is DownloadOutcome.NONE  # não foi adotada
     assert final.exists() and final.stat().st_size == 0  # intocado
 
 
@@ -909,6 +912,31 @@ def test_ordem_de_album_viaja_na_tarefa_e_no_registro(manager, monkeypatch, tmp_
     assert ensures[0]["track_number"] == 3
     assert ensures[0]["disc_number"] == 1
     assert ensures[0]["album_track_count"] == 9
+
+
+def test_lote_com_existente_e_nova_distingue_desfechos(manager, monkeypatch, tmp_path):
+    """T17.1/R8 (Q13b): no lote, adotada ≠ baixada — e nada é sobrescrito."""
+    monkeypatch.setattr(download_mod.library, "update_track_file", lambda *args, **kw: None)
+    monkeypatch.setattr(download_mod.library, "ensure_track", lambda **kw: 1)
+
+    existing_bytes = b"audio-do-usuario"
+    final_existing = tmp_path / "A" / "Alb" / "Existente - A.mp3"
+    final_existing.parent.mkdir(parents=True)
+    final_existing.write_bytes(existing_bytes)
+
+    adopted = manager.queue_download(video_id="velha", title="Existente", artist="A", album="Alb")
+    result_a = manager._download_task(adopted)
+    new = manager.queue_download(video_id="nova", title="Nova", artist="A", album="Alb")
+    result_b = manager._download_task(new)
+
+    assert result_a.status is DownloadStatus.COMPLETED
+    assert result_a.outcome is DownloadOutcome.EXISTING_ADOPTED
+    assert final_existing.read_bytes() == existing_bytes  # nunca sobrescreve
+
+    assert result_b.status is DownloadStatus.COMPLETED
+    assert result_b.outcome is DownloadOutcome.NONE
+    assert result_b.file_path == tmp_path / "A" / "Alb" / "Nova - A.mp3"
+    assert result_b.file_path.exists()
 
 
 def test_second_task_for_same_destination_fails_busy(manager, monkeypatch, tmp_path):
