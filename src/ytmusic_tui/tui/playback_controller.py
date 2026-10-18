@@ -46,6 +46,7 @@ class PlaybackController:
         def query_one(self, selector: Any, expect_type: Any = None) -> Any: ...
         def _toast(self, message: str) -> None: ...
         def _library_visible_tracks(self) -> list[LibraryTrack]: ...
+        def _playlist_visible_tracks(self) -> list[LibraryTrack]: ...
 
     # ===== Ações do player (atalhos e botões) =====
 
@@ -115,12 +116,31 @@ class PlaybackController:
         do que mandar o player abrir um caminho inexistente; a
         reconciliação marca a faixa na próxima passagem.
         """
+        if not self._guard_audio_file(track):
+            return
+        self._play_from_list(self._library_visible_tracks(), track)
+
+    def play_playlist_track(self, track: LibraryTrack) -> None:
+        """Reproduz uma faixa de playlist (fila = ordem da playlist — R3).
+
+        Mesma checagem de arquivo registrado da biblioteca (T05-R4); a
+        fila segue a ordem das posições, começando na faixa escolhida.
+        """
+        if not self._guard_audio_file(track):
+            return
+        self._play_from_list(self._playlist_visible_tracks(), track)
+
+    def _guard_audio_file(self, track: LibraryTrack) -> bool:
+        """Confere o arquivo registrado; avisa e devolve False se sumiu."""
         try:
             ensure_audio_file(track)
         except AudioFileMissingError as error:
             self._toast(playback_error(describe_library_error(error)))
-            return
-        visible = self._library_visible_tracks()
+            return False
+        return True
+
+    def _play_from_list(self, visible: list[LibraryTrack], track: LibraryTrack) -> None:
+        """Toca ``track`` com a fila nas faixas visíveis, a partir dela."""
         try:
             index = visible.index(track)
         except ValueError:

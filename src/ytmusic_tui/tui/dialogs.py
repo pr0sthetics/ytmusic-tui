@@ -1,4 +1,4 @@
-"""Telas modais da TUI: Ajuda (T12-R1)."""
+"""Telas modais da TUI: Ajuda (T12-R1) e entrada de nome (T17.1/R3)."""
 
 from collections.abc import Iterable
 
@@ -6,7 +6,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Static
+from textual.widgets import Input, Static
 
 from ytmusic_tui.tui.messages import (
     HELP_FOOTER,
@@ -14,6 +14,7 @@ from ytmusic_tui.tui.messages import (
     HELP_NAV_LINES,
     HELP_NAV_TITLE,
     HELP_TITLE,
+    PLAYLIST_NAME_REQUIRED,
     help_shortcut_lines,
 )
 
@@ -81,3 +82,45 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def action_cancel(self) -> None:
         self.dismiss(False)
+
+
+class NameInputScreen(ModalScreen[str | None]):
+    """Pede um nome: criar/renomear playlist (T17.1/R3).
+
+    Teclado primeiro: Enter confirma (o nome é aparamado; vazio é recusado
+    com aviso no próprio modal), Esc cancela devolvendo ``None`` — o
+    callback de ``push_screen`` só cria/renomeia depois de um nome válido.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancelar"),
+    ]
+
+    def __init__(self, title: str, placeholder: str = "", initial: str = "") -> None:
+        super().__init__()
+        self._title = title
+        self._placeholder = placeholder
+        self._initial = initial
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="name-box"):
+            yield Static(self._title, id="name-title", markup=False)
+            yield Input(
+                value=self._initial,
+                placeholder=self._placeholder,
+                id="name-input",
+            )
+            yield Static("", id="name-error", markup=False)
+
+    def on_mount(self) -> None:
+        self.query_one("#name-input", Input).focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        name = event.value.strip()
+        if not name:
+            self.query_one("#name-error", Static).update(PLAYLIST_NAME_REQUIRED)
+            return
+        self.dismiss(name)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)

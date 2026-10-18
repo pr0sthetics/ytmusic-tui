@@ -279,6 +279,66 @@ LIBRARY_LIKE_NEEDS_DOWNLOAD = "Baixe a faixa primeiro (Ctrl+D) para curtí-la na
 LIKE_ADDED = "❤️ Curtida (local)"
 LIKE_REMOVED = "Removida das curtidas (local)"
 
+# --- Playlists locais (T17.1/R3) ---
+PLAYLISTS_EMPTY_TEXT = "Nenhuma playlist ainda.\nUse N para criar a primeira."
+PLAYLISTS_LOADING_TEXT = "Carregando playlists..."
+PLAYLIST_LOADING_TEXT = "Carregando playlist..."
+PLAYLIST_EMPTY_TEXT = "Playlist vazia.\nNa Biblioteca, selecione faixas e use p para adicionar."
+PLAYLIST_NEW_PROMPT = "Nova playlist — nome:"
+PLAYLIST_RENAME_PROMPT = "Renomear playlist — novo nome:"
+PLAYLIST_NAME_PLACEHOLDER = "Nome da playlist"
+PLAYLIST_NAME_REQUIRED = "O nome não pode ficar vazio."
+PLAYLIST_RENAME_FAILED = "Não foi possível renomear — a playlist sumiu ou é de sistema."
+PLAYLIST_DELETE_FAILED = "Não foi possível excluir — a playlist sumiu ou é de sistema."
+PLAYLIST_REORDER_FAILED = "Não foi possível reordenar a playlist."
+PLAYLISTS_UNAVAILABLE_TOAST = "⚠️ Falha ao carregar as playlists — detalhes no log"
+
+
+def playlist_label(name: str, track_count: int) -> str:
+    """Linha do nível 1 da aba Playlists: ``nome · N faixas`` (R3)."""
+    count = "1 faixa" if track_count == 1 else f"{track_count} faixas"
+    return f"{name} · {count}"
+
+
+def playlist_created(name: str) -> str:
+    return f"🎵 Playlist criada: {name}"
+
+
+def playlist_renamed(name: str) -> str:
+    return f"🎵 Playlist renomeada: {name}"
+
+
+def playlist_deleted(name: str) -> str:
+    return f"🗑 Playlist excluída: {name}"
+
+
+def confirm_delete_playlist(name: str, track_count: int) -> str:
+    count = "1 entrada" if track_count == 1 else f"{track_count} entradas"
+    return f"Excluir a playlist «{name}» e suas {count}? As faixas continuam na biblioteca."
+
+
+def playlist_track_removed(title: str) -> str:
+    return f"Faixa removida da playlist: {title}"
+
+
+def playlist_track_moved(title: str, *, up: bool) -> str:
+    direction = "cima" if up else "baixo"
+    return f"Movida para {direction}: {title}"
+
+
+def playlist_move_edge(*, up: bool) -> str:
+    return "Já está no topo da playlist." if up else "Já está no fim da playlist."
+
+
+def playlists_unavailable(reason: str, log_path: str) -> str:
+    """Falha de leitura das playlists — nunca parecer "nenhuma playlist" (R3)."""
+    return (
+        "[b]⚠️ Não foi possível carregar as playlists[/b]\n"
+        f"{reason}\n"
+        f"Nada foi apagado. Detalhes no log: {log_path}"
+    )
+
+
 #: Marca de faixa ausente nas listas — legenda honesta junto da lista (R7).
 MISSING_MARK = "⚠"
 MISSING_LEGEND_TEXT = f"{MISSING_MARK} arquivo não encontrado na última reconciliação"

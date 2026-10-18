@@ -618,11 +618,19 @@ class LibraryService:
             ).scalar_one_or_none()
 
     def list_playlists(self) -> list[Playlist]:
-        """Lista todas as playlists."""
+        """Lista todas as playlists, com as entradas carregadas.
+
+        As entradas vêm junto (``selectinload``) para a lista da TUI contar
+        as faixas pelo que existe de fato — ``track_count`` fica como
+        contador de sistema do modelo (T17.1/R3).
+        """
         with self.db.session() as session:
             return list(
                 session.execute(
-                    select(Playlist).where(Playlist.is_system.is_(False)).order_by(Playlist.name)
+                    select(Playlist)
+                    .options(selectinload(Playlist.tracks))
+                    .where(Playlist.is_system.is_(False))
+                    .order_by(Playlist.name)
                 )
                 .scalars()
                 .all()

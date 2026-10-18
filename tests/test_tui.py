@@ -46,13 +46,14 @@ from ytmusic_tui.library.service import LibraryAlbum
 from ytmusic_tui.player import PlayerEvent, TrackInfo, player
 from ytmusic_tui.tui import download_controller, library_controller
 from ytmusic_tui.tui.app import MainScreen, PlayerEventMessage, YTMusicTUI
-from ytmusic_tui.tui.dialogs import ConfirmScreen, HelpScreen
+from ytmusic_tui.tui.dialogs import ConfirmScreen, HelpScreen, NameInputScreen
 from ytmusic_tui.tui.messages import format_key
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
     NowPlayingBar,
+    PlaylistListView,
     SongListView,
     TrackListView,
 )
@@ -182,7 +183,7 @@ async def test_switch_tabs_and_render_search():
             "tab-library",
             "tab-downloads",
             "tab-settings",
-            "tab-home",
+            "tab-playlists",
         ):
             screen.query_one("#main-tabs", TabbedContent).active = tab_id
             await pilot.pause()
@@ -1318,6 +1319,347 @@ async def test_library_ausente_visivel_na_lista_no_album_e_legenda():
         assert screen.query_one("#library-legend", Static).display is True
 
 
+@pytest.mark.asyncio
+async def test_abas_abrem_na_busca_com_playlists_primeiro():
+    """T17.1/R3: app abre na Busca; ordem das abas começa com 🎵 Playlists."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        tabbed = screen.query_one("#main-tabs", TabbedContent)
+        assert tabbed.active == "tab-search"
+
+        tabs = tabbed.query_one(Tabs)
+        ids = [str(tab.id) for tab in tabs.query("Tab") if tab.id]
+
+        def _index(fragment: str) -> int:
+            return next(i for i, tab_id in enumerate(ids) if fragment in tab_id)
+
+        assert _index("tab-playlists") < _index("tab-search")
+        assert _index("tab-search") < _index("tab-album") < _index("tab-library")
+        assert _index("tab-library") < _index("tab-downloads") < _index("tab-settings")
+        # A aba de álbum existe, mas começa oculta (só abre pela busca).
+        album_tab = tabbed.get_tab("tab-album")
+        assert album_tab is not None and album_tab.has_class("-hidden")
+
+
+@pytest.mark.asyncio
+async def test_playlists_nivel_1_cria_abre_e_volta(monkeypatch):
+    """T17.1/R3: nível 1 (nome · N faixas), Enter abre, fila em ordem, Esc/← voltam."""
+    playlist = library.create_playlist("Minha Mix")
+    for index in (1, 2, 3):
+        track_id = library.ensure_track(f"P{index}", f"Faixa {index}", "Artista")
+        assert track_id is not None
+        assert library.add_track_to_playlist(playlist.id, track_id) is True
+
+    played: list[TrackInfo] = []
+    monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        tabbed = screen.query_one("#main-tabs", TabbedContent)
+        tabbed.active = "tab-playlists"
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#playlists-list", PlaylistListView)
+        assert view.display is True
+        assert [str(item.name) for item in view.playlists] == ["Minha Mix"]
+        label = str(view.children[0].query_one(Label).render())
+        assert label == "Minha Mix · 3 faixas"
+
+        view.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        header = screen.query_one("#playlist-header", Static)
+        tracks = screen.query_one("#playlist-tracks", TrackListView)
+        assert header.display is True
+        assert "Minha Mix" in str(header.render())
+        assert "3 faixas" in str(header.render())
+        assert [track.title for track in tracks.tracks] == ["Faixa 1", "Faixa 2", "Faixa 3"]
+
+        # Enter na 2ª faixa: fila na ordem da playlist, começando nela.
+        tracks.index = 1
+        await pilot.press("enter")
+        await pilot.pause()
+        assert [info.title for info in played] == ["Faixa 2"]
+        assert [info.title for info in screen._play_queue] == ["Faixa 1", "Faixa 2", "Faixa 3"]
+        assert screen._play_index == 1
+
+        # ← volta (mesmo caminho do Esc); Esc volta depois de reabrir.
+        await pilot.press("left")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert view.display is True and header.display is False
+
+        await pilot.press("enter")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert header.display is True
+        await pilot.press("escape")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert view.display is True and header.display is False
+
+
+@pytest.mark.asyncio
+async def test_playlist_criar_renomear_excluir_com_modais(monkeypatch):
+    """T17.1/R3: N cria, E renomeia, Delete exclui com confirmação; Esc cancela."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        # Fora da aba Playlists as teclas novas ficam inativas (check_action).
+        await pilot.press("n")
+        await pilot.pause()
+        assert app.screen is screen
+
+        tabbed = screen.query_one("#main-tabs", TabbedContent)
+        tabbed.active = "tab-playlists"
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+
+        # N abre o modal; nome vazio é recusado sem fechar.
+        await pilot.press("n")
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, NameInputScreen)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, NameInputScreen)
+        assert "não pode ficar vazio" in str(modal.query_one("#name-error", Static).render())
+
+        # Digita o nome e confirma.
+        await pilot.press(*"Minha", "space", *"Lista")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.screen is screen
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#playlists-list", PlaylistListView)
+        assert [str(item.name) for item in view.playlists] == ["Minha Lista"]
+        assert any("Playlist criada: Minha Lista" in toast for toast in toasts)
+
+        # Esc no modal cancela sem criar uma segunda playlist.
+        await pilot.press("n")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        await screen.refresh_playlists().wait()
+        assert [str(item.name) for item in view.playlists] == ["Minha Lista"]
+
+        # E renomeia; o campo abre com o nome atual.
+        view.focus()
+        await pilot.pause()
+        await pilot.press("e")
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, NameInputScreen)
+        input_widget = modal.query_one("#name-input", Input)
+        assert input_widget.value == "Minha Lista"
+        input_widget.value = "Renomeada"
+        await pilot.press("enter")
+        await pilot.pause()
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert [str(item.name) for item in view.playlists] == ["Renomeada"]
+        assert any("Playlist renomeada: Renomeada" in toast for toast in toasts)
+
+        # Delete pede confirmação; "n" cancela sem excluir.
+        await pilot.press("delete")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmScreen)
+        await pilot.press("n")
+        await pilot.pause()
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert [str(item.name) for item in view.playlists] == ["Renomeada"]
+
+        # "y" confirma; a lista volta ao estado vazio próprio (não é erro).
+        await pilot.press("delete")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert view.playlists == []
+        assert any("Playlist excluída: Renomeada" in toast for toast in toasts)
+        message = screen.query_one("#playlists-message", Static)
+        assert message.display is True
+        assert "Nenhuma playlist ainda" in str(message.render())
+
+
+@pytest.mark.asyncio
+async def test_playlist_remover_e_mover_faixas(monkeypatch):
+    """T17.1/R3: Shift+↑/↓ movem numa transação; Delete remove faixa no detalhe."""
+    playlist = library.create_playlist("Ordenada")
+    for index in (1, 2, 3):
+        track_id = library.ensure_track(f"M{index}", f"Faixa {index}", "Artista")
+        assert track_id is not None
+        library.add_track_to_playlist(playlist.id, track_id)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-playlists"
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#playlists-list", PlaylistListView)
+        view.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        tracks_view = screen.query_one("#playlist-tracks", TrackListView)
+        assert [track.title for track in tracks_view.tracks] == [
+            "Faixa 1",
+            "Faixa 2",
+            "Faixa 3",
+        ]
+
+        # Shift+↓ move a 1ª (selecionada) para baixo; a seleção acompanha.
+        tracks_view.index = 0
+        await pilot.press("shift+down")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert [track.title for track in tracks_view.tracks] == [
+            "Faixa 2",
+            "Faixa 1",
+            "Faixa 3",
+        ]
+        assert tracks_view.index == 1
+        stored = library.get_playlist(playlist.id)
+        assert stored is not None
+        ordered = sorted(stored.tracks, key=lambda entry: entry.position)
+        assert [entry.track.title for entry in ordered] == ["Faixa 2", "Faixa 1", "Faixa 3"]
+
+        # Shift+↑ devolve ao topo.
+        await pilot.press("shift+up")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert [track.title for track in tracks_view.tracks] == [
+            "Faixa 1",
+            "Faixa 2",
+            "Faixa 3",
+        ]
+        assert tracks_view.index == 0
+
+        # Shift+↑ no topo: aviso, ordem intacta.
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        await pilot.press("shift+up")
+        await pilot.pause()
+        assert any("topo" in toast for toast in toasts)
+        assert [track.title for track in tracks_view.tracks] == [
+            "Faixa 1",
+            "Faixa 2",
+            "Faixa 3",
+        ]
+
+        # Delete remove a faixa selecionada da playlist; a biblioteca fica.
+        await pilot.press("delete")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        assert [track.title for track in tracks_view.tracks] == ["Faixa 2", "Faixa 3"]
+        assert any("Faixa removida da playlist: Faixa 1" in toast for toast in toasts)
+        stored = library.get_playlist(playlist.id)
+        assert stored is not None
+        assert sorted(entry.track.title for entry in stored.tracks) == ["Faixa 2", "Faixa 3"]
+        assert library.get_track_by_source_id("M1") is not None  # só o vínculo saiu
+        assert "2 faixas" in str(screen.query_one("#playlist-header", Static).render())
+
+
+@pytest.mark.asyncio
+async def test_playlists_vazio_e_erro_distintos(monkeypatch):
+    """T17.1/R3: falha de leitura nunca aparece como "nenhuma playlist"."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-playlists"
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        message = screen.query_one("#playlists-message", Static)
+        assert message.display is True
+        assert "Nenhuma playlist ainda" in str(message.render())
+
+        def _broken():
+            raise RuntimeError("banco inacessível [Errno 5]")
+
+        monkeypatch.setattr(library, "list_playlists", _broken)
+        await screen.refresh_playlists().wait()
+
+        rendered = str(message.render())
+        assert "Não foi possível carregar as playlists" in rendered
+        assert "banco inacessível [Errno 5]" in rendered  # colchetes ok
+        assert "Nenhuma playlist ainda" not in rendered
+        assert screen.query_one("#playlists-list", PlaylistListView).display is False
+
+
+@pytest.mark.asyncio
+async def test_playlist_faixa_ausente_marcada_e_protegida(monkeypatch, tmp_path):
+    """T17.1/R7: ausente marcada também na playlist; tocar avisa sem crash."""
+    playlist = library.create_playlist("Com Ausente")
+    present = library.ensure_track("PL1", "Presente")
+    missing = library.ensure_track("PL2", "Sumida", "Artista")
+    assert present is not None and missing is not None
+    library.add_track_to_playlist(playlist.id, present)
+    library.add_track_to_playlist(playlist.id, missing)
+    with library.db.session() as session:
+        row = session.get(DbTrack, missing)
+        assert row is not None
+        row.is_missing = True
+        row.is_downloaded = True
+        row.local_path = str(tmp_path / "sumida.mp3")  # nunca criado no disco
+
+    played: list[TrackInfo] = []
+    monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-playlists"
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+        view = screen.query_one("#playlists-list", PlaylistListView)
+        view.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        tracks = screen.query_one("#playlist-tracks", TrackListView)
+        labels = " | ".join(str(child.query_one(Label).render()) for child in tracks.children)
+        assert "⚠ Sumida" in labels
+        assert "⚠ Presente" not in labels
+        legend = screen.query_one("#playlist-legend", Static)
+        assert legend.display is True
+        assert "última reconciliação" in str(legend.render())
+
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        tracks.index = 1  # a faixa ausente
+        await pilot.press("enter")
+        await pilot.pause()
+        assert played == []  # o player nem foi acionado
+        assert any("não está mais no disco" in toast for toast in toasts)
+
+
 def test_bindings_resolve_to_actions():
     """Todo atalho anunciado deve ter uma action correspondente."""
     for owner in (MainScreen, YTMusicTUI, HelpScreen):
@@ -1634,7 +1976,7 @@ async def test_tabs_are_clickable_with_mouse():
         for tab_id, fragment in (
             ("tab-library", "Biblioteca"),
             ("tab-downloads", "Downloads"),
-            ("tab-home", "Início"),
+            ("tab-playlists", "Playlists"),
         ):
             tab = [t for t in tabs.query("Tab") if t.id and tab_id in t.id][0]
             await pilot.click(offset=(tab.region.x + 2, labels_row))
@@ -2805,6 +3147,87 @@ async def test_leitura_antiga_da_biblioteca_nao_pisa_na_mais_nova(monkeypatch):
         await pilot.pause()
 
         assert [entry.album.title for entry in view.albums] == ["Novo"]
+
+
+@pytest.mark.asyncio
+async def test_playlists_mostram_carregando_durante_leitura(monkeypatch):
+    """T17.1/R3: leitura pendurada mostra "carregando"; depois, estado vazio."""
+    release = threading.Event()
+
+    def _slow_playlists():
+        release.wait(timeout=10)
+        return []
+
+    monkeypatch.setattr(library, "list_playlists", _slow_playlists)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-playlists"
+        await pilot.pause()
+
+        message = screen.query_one("#playlists-message", Static)
+        assert message.display is True
+        assert "Carregando playlists..." in str(message.render())
+
+        release.set()
+        await screen.refresh_playlists().wait()
+
+        assert "Nenhuma playlist ainda" in str(message.render())
+
+
+@pytest.mark.asyncio
+async def test_leitura_antiga_das_playlists_nao_pisa_na_mais_nova(monkeypatch):
+    """T17.1/R3: época — leitura antiga concluindo depois não sobrepõe a nova."""
+    release = threading.Event()
+    entered = threading.Event()
+    stale = {"blocked": False}
+
+    class _Playlist:
+        def __init__(self, name: str) -> None:
+            self.id = 1
+            self.name = name
+            self.tracks: list = []
+
+    def _playlists():
+        if stale["blocked"]:
+            entered.set()
+            release.wait(timeout=10)
+            return [_Playlist("Antigo")]
+        return [_Playlist("Novo")]
+
+    monkeypatch.setattr(library, "list_playlists", _playlists)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-playlists"
+        await screen.refresh_playlists().wait()  # estado estável antes do teste
+
+        captured: list = []
+        monkeypatch.setattr(screen, "run_worker", lambda worker, **kwargs: captured.append(worker))
+
+        # A leitura "antiga" fica presa DE VERDADE na thread antes de a nova rodar.
+        stale["blocked"] = True
+        screen.refresh_playlists()  # época N (antiga — fica presa)
+        task_old = asyncio.create_task(captured[0])
+        assert await asyncio.to_thread(entered.wait, 10)
+
+        stale["blocked"] = False
+        screen.refresh_playlists()  # época N+1 (nova)
+        await captured[1]  # a nova pinta primeiro
+        await pilot.pause()
+
+        view = screen.query_one("#playlists-list", PlaylistListView)
+        assert [str(item.name) for item in view.playlists] == ["Novo"]
+
+        release.set()
+        await asyncio.wait_for(task_old, timeout=10)
+        await pilot.pause()
+
+        assert [str(item.name) for item in view.playlists] == ["Novo"]
 
 
 if __name__ == "__main__":

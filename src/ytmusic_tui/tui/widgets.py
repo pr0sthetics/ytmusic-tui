@@ -9,6 +9,7 @@ from textual.widget import Widget
 from textual.widgets import Button, Input, Label, ListItem, ListView, ProgressBar, Static
 
 from ytmusic_tui.api.models import Album, Track
+from ytmusic_tui.library.models import Playlist
 from ytmusic_tui.library.models import Track as LibraryTrack
 from ytmusic_tui.library.service import LibraryAlbum
 from ytmusic_tui.player import PlayerState, TrackInfo
@@ -18,6 +19,7 @@ from ytmusic_tui.tui.messages import (
     PLAYER_LOADING_TEXT,
     SINGLES_SECTION_TEXT,
     escape_markup,
+    playlist_label,
 )
 
 _WidgetT = TypeVar("_WidgetT", bound=Widget)
@@ -129,6 +131,32 @@ class LibraryListView(AutoHighlightListView):
     def _selected_entry(self) -> LibraryAlbum | LibraryTrack | None:
         if self.index is not None and 0 <= self.index < len(self._entries):
             return self._entries[self.index]
+        return None
+
+
+class PlaylistListView(AutoHighlightListView):
+    """Nível 1 da aba Playlists: ``nome · N faixas`` (T17.1/R3).
+
+    As contagens saem das entradas carregadas junto (``list_playlists``
+    com ``selectinload``) — a lista mostra o que existe de fato.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.playlists: list[Playlist] = []
+
+    def set_playlists(self, playlists: list[Playlist]) -> None:
+        """Atualiza a lista in-place (sem ``id`` nos itens — T12-R2)."""
+        self.playlists = list(playlists)
+        self.clear()
+        for playlist in self.playlists:
+            count = len(playlist.tracks)
+            self.append(ListItem(Label(playlist_label(str(playlist.name), count), markup=False)))
+
+    def get_selected_playlist(self) -> Playlist | None:
+        """Playlist selecionada (None = nada destacado)."""
+        if self.index is not None and 0 <= self.index < len(self.playlists):
+            return self.playlists[self.index]
         return None
 
 

@@ -41,6 +41,7 @@ from ytmusic_tui.tui.messages import (
     ALBUM_WITHOUT_ID,
     DOWNLOADS_EMPTY_TEXT,
     INVALID_VALUE,
+    PLAYLISTS_EMPTY_TEXT,
     SEARCH_INIT_DETAIL,
     SEARCH_INIT_NEXT,
     SEARCH_NO_RESULTS,
@@ -58,10 +59,12 @@ from ytmusic_tui.tui.messages import (
     volume_set,
 )
 from ytmusic_tui.tui.playback_controller import PlaybackController
+from ytmusic_tui.tui.playlist_controller import PlaylistController
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
     NowPlayingBar,
+    PlaylistListView,
     SearchInput,
     SongListView,
     TrackListView,
@@ -80,6 +83,9 @@ logger = logging.getLogger(__name__)
 # Biblioteca:  carregando (LIBRARY_LOADING_TEXT) · com conteúdo (lista
 #              visível) · vazia (LIBRARY_EMPTY_TEXT) · indisponível
 #              (library_unavailable — motivo + "nada foi apagado").
+# Playlists:   nível 1 ("nome · N faixas") · detalhe (posições) · playlist
+#              vazia · nenhuma playlist · indisponível (playlists_unavailable)
+#              — falha nunca vira "nenhuma playlist".
 # Downloads:   fila vazia (DOWNLOADS_EMPTY_TEXT, tabela oculta) · ativa ·
 #              concluída · com falhas — a tabela aparece quando há linhas.
 # Player:      barra em parado/carregando/tocando/pausado/falha
@@ -89,13 +95,16 @@ logger = logging.getLogger(__name__)
 #              ao salvar (toast mascarado em 3 partes, _save_setting).
 
 
-class MainScreen(PlaybackController, DownloadController, LibraryController, Screen):
+class MainScreen(
+    PlaybackController, DownloadController, LibraryController, PlaylistController, Screen
+):
     """Tela principal com abas.
 
     O comportamento é composto pelos mixins de controller — reprodução
-    (:class:`PlaybackController`), downloads (:class:`DownloadController`)
-    e biblioteca (:class:`LibraryController`); aqui ficam o layout, os
-    atalhos e a navegação entre abas.
+    (:class:`PlaybackController`), downloads (:class:`DownloadController`),
+    biblioteca (:class:`LibraryController`) e playlists
+    (:class:`PlaylistController`); aqui ficam o layout, os atalhos e a
+    navegação entre abas.
     """
 
     BINDINGS = [
@@ -110,6 +119,11 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         Binding("t", "play_album", "Tocar álbum"),
         Binding("r", "retry_download", "Retomar download"),
         Binding("d", "discard_download", "Descartar download"),
+        Binding("n", "new_playlist", "Nova playlist"),
+        Binding("e", "rename_playlist", "Renomear playlist"),
+        Binding("delete", "delete_playlist", "Excluir playlist/faixa"),
+        Binding("shift+up", "move_playlist_track_up", "Mover faixa ↑"),
+        Binding("shift+down", "move_playlist_track_down", "Mover faixa ↓"),
         Binding("escape", "back_to_search", "Voltar", show=False),
         Binding("ctrl+l", "library", "Biblioteca"),
         Binding("f1", "help", "Ajuda"),
@@ -131,13 +145,15 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
 
-        with TabbedContent(id="main-tabs"):
-            with TabPane("🏠 Início", id="tab-home"):
-                yield Static("[b]Bem-vindo ao YouTube Music TUI[/b]", classes="section-title")
-                yield Static(
-                    "Use Ctrl+S para buscar músicas e álbuns, ou Ctrl+L para ver sua biblioteca.\n"
-                    "Enter num álbum abre a aba 💿 Álbum, onde 'a' baixa o álbum inteiro."
-                )
+        with TabbedContent(initial="tab-search", id="main-tabs"):
+            with TabPane("🎵 Playlists", id="tab-playlists"):
+                yield Static("[b]🎵 Playlists locais[/b]", classes="section-title")
+                with Vertical(id="playlists-body"):
+                    yield Static(PLAYLISTS_EMPTY_TEXT, id="playlists-message")
+                    yield PlaylistListView(id="playlists-list")
+                    yield Static("", id="playlist-header", classes="section-title")
+                    yield Static("", id="playlist-legend")
+                    yield TrackListView(id="playlist-tracks")
 
             with TabPane("🔍 Busca", id="tab-search"):
                 yield SearchInput(id="search-input")
@@ -257,9 +273,14 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         self.query_one("#library-album-header", Static).display = False
         self.query_one("#library-album-tracks", TrackListView).display = False
         self.query_one("#library-legend", Static).display = False
+        # Playlists: o detalhe (R3) só aparece com uma playlist aberta.
+        self.query_one("#playlist-header", Static).display = False
+        self.query_one("#playlist-legend", Static).display = False
+        self.query_one("#playlist-tracks", TrackListView).display = False
         # A aba de álbum só aparece quando um álbum é aberto pela busca.
         self._set_album_tab_visible(False)
         self.refresh_library()
+        self.refresh_playlists()
         self.update_downloads_table()
         # Tarefas interrompidas recuperadas na inicialização (T04-R2): avisa
         # uma vez que há decisão pendente (r retoma, d descarta).
@@ -273,6 +294,8 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         pane_id = getattr(event.pane, "id", None)
         if pane_id == "tab-library":
             self.refresh_library()
+        elif pane_id == "tab-playlists":
+            self.refresh_playlists()
         elif pane_id == "tab-downloads":
             self.update_downloads_table()
 
@@ -434,7 +457,9 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         ``r`` (retomar) e ``d`` (descartar) só existem na aba 📥 Downloads:
         fora dela o atalho fica inativo — uma letra digitada em outro
         contexto não dispara comando de download (nem toast fora de hora).
-        ``t`` (tocar álbum) só vale com um álbum aberto na Biblioteca (R6).
+        ``t`` (tocar álbum) só vale com um álbum aberto na Biblioteca (R6);
+        ``n``/``e``/``delete``/``shift+↑``/``shift+↓`` só valem na aba 🎵
+        Playlists, e renomear/excluir pedem uma playlist alvo (R3).
         """
         if action in ("retry_download", "discard_download"):
             try:
@@ -448,6 +473,23 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
             except Exception:
                 return False
             return bool(tabs.active == "tab-library" and self.library_album_open())
+        if action in (
+            "new_playlist",
+            "rename_playlist",
+            "delete_playlist",
+            "move_playlist_track_up",
+            "move_playlist_track_down",
+        ):
+            try:
+                tabs = self.query_one("#main-tabs", TabbedContent)
+            except Exception:
+                return False
+            if tabs.active != "tab-playlists":
+                return False
+            if action in ("rename_playlist", "delete_playlist"):
+                return self.playlist_has_selection()
+            if action in ("move_playlist_track_up", "move_playlist_track_down"):
+                return self.playlist_open()
         return True
 
     def action_help(self) -> None:
@@ -455,20 +497,22 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         self.app.push_screen(HelpScreen([*self.app.BINDINGS, *self.BINDINGS]))
 
     def action_back_to_search(self) -> None:
-        """Esc: volta um nível (aba 💿 Álbum → Busca; álbum da Biblioteca → nível 1)."""
+        """Esc: volta um nível (aba 💿 Álbum → Busca; detalhes → nível 1)."""
         tabs = self.query_one("#main-tabs", TabbedContent)
         if tabs.active == "tab-album":
             self._switch_tab("tab-search")
             self.call_after_refresh(self._focus_search)
         elif tabs.active == "tab-library" and self.library_album_open():
             self.close_library_album()
+        elif tabs.active == "tab-playlists" and self.playlist_open():
+            self.close_playlist()
 
     def action_previous_or_back(self) -> None:
-        """← : volta um nível na Biblioteca; fora dela, faixa anterior (R6).
+        """← : volta um nível (Biblioteca/Playlists); fora delas, faixa anterior.
 
         A tecla ← mantém o papel de "faixa anterior" na reprodução; dentro
-        do modo álbum da Biblioteca ela é o gesto de voltar pedido no R6
-        (mesmo caminho do Esc).
+        dos níveis internos (álbum da Biblioteca — R6; detalhe da playlist
+        — R3) ela é o gesto de voltar, mesmo caminho do Esc.
         """
         if self._inner_level_open():
             self.action_back_to_search()
@@ -476,13 +520,15 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
         self.action_previous()
 
     def _inner_level_open(self) -> bool:
-        """True quando há um nível interno aberto com gesto de voltar (R6)."""
+        """True quando há um nível interno aberto com gesto de voltar (R3/R6)."""
         try:
             tabs = self.query_one("#main-tabs", TabbedContent)
         except Exception:
             return False
         if tabs.active == "tab-library":
             return self.library_album_open()
+        if tabs.active == "tab-playlists":
+            return self.playlist_open()
         return False
 
     def _toast(self, message: str) -> None:
@@ -615,10 +661,18 @@ class MainScreen(PlaybackController, DownloadController, LibraryController, Scre
             track = view.get_selected_track()
             if track:
                 self.play_library_track(track)
+        elif isinstance(view, PlaylistListView):
+            # R3: Enter numa playlist abre o detalhe dentro da aba.
+            playlist = view.get_selected_playlist()
+            if playlist:
+                self.open_playlist(playlist)
         elif isinstance(view, TrackListView):
             track = view.get_selected_track()
             if track:
-                self.play_library_track(track)
+                if view.id == "playlist-tracks":
+                    self.play_playlist_track(track)
+                else:
+                    self.play_library_track(track)
 
     # ===== Busca =====
 
