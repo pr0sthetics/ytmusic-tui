@@ -15,6 +15,15 @@ from ytmusic_tui import __version__
 __all__ = ["main"]
 
 
+def _report_invalid_configuration(message: str) -> int:
+    """Imprime configuração inválida em 3 partes e devolve exit 1 (A02).
+
+    Nunca traceback: o usuário vê o arquivo, o campo e o valor esperado.
+    """
+    print(f"ytmusic-tui não pode iniciar:\n{message}", file=sys.stderr)
+    return 1
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """CLI mínima: sem comando abre a TUI; ``doctor`` e ``--version`` informam."""
     parser = argparse.ArgumentParser(
@@ -69,7 +78,27 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "doctor":
         raise SystemExit(_doctor_exit_code())
 
+    # A02: configuração inválida (TOML/ambiente) é recusada ANTES de importar
+    # Textual/mpv — mensagem clara, exit 1, nenhum traceback. O ``settings``
+    # global carregou um fallback para o import não explodir; nada roda com
+    # ele sem passar por esta checagem. O import em si pode falhar com
+    # ``ConfigError`` (diretório de dados sem permissão, por exemplo): esse
+    # caso também vira mensagem amigável, nunca traceback.
     from ytmusic_tui.errors import ConfigError
+
+    try:
+        from ytmusic_tui.config import configuration_error
+    except ConfigError as exc:  # pragma: no cover - depende do sistema
+        print(
+            f"ytmusic-tui não conseguiu preparar os diretórios do usuário: {exc}\n"
+            "Verifique as permissões dos diretórios de dados/configuração "
+            "(`YTMUSIC_DATA_DIR`, `YTMUSIC_CONFIG_DIR`).",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+
+    if (config_error := configuration_error()) is not None:
+        raise SystemExit(_report_invalid_configuration(str(config_error)))
 
     try:
         from ytmusic_tui.tui.app import main as run

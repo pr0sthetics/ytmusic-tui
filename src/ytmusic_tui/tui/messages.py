@@ -181,6 +181,20 @@ def download_failed(error: str) -> str:
     )
 
 
+def library_write_error(detail: str) -> str:
+    """Falha de ESCRITA na biblioteca em 3 partes (A06).
+
+    Diferente da leitura: a ação do usuário não foi concluída. A parte 2
+    garante que nada existente foi apagado; a 3 aponta o log e a nova
+    tentativa. O detalhe já vem mascarado/descrito por quem chama.
+    """
+    return format_error(
+        f"Não foi possível salvar na biblioteca: {detail}",
+        preserved="Nada foi apagado; a biblioteca e os arquivos continuam como estavam.",
+        next_action="Tente de novo; se persistir, veja os detalhes no log.",
+    )
+
+
 # ===== Toasts e mensagens de estado (T12-R7 · ponto único pt-BR) =====
 
 # --- Reprodução ---
@@ -210,13 +224,30 @@ ALBUM_REQUIRED = "Nenhum álbum aberto — selecione um álbum na busca"
 
 # --- Downloads ---
 RETRY_REQUIRES_INTERRUPTED = "Selecione um download interrompido (⏸️) na aba downloads para retomar"
+RETRY_REQUIRES_INTERRUPTED_OR_FAILED = (
+    "Selecione um download interrompido (⏸️) ou com falha (❌) na aba downloads para retomar"
+)
 DISCARD_REQUIRES_INTERRUPTED = (
     "Selecione um download interrompido (⏸️) na aba downloads para descartar"
 )
 RETRY_FAILED = "Não foi possível retomar o download"
 DISCARD_FAILED = "Não foi possível descartar o download"
+CANCEL_REQUIRES_ACTIVE = "Selecione um download pendente (⏳) ou em andamento (⬇️) para cancelar"
+CANCEL_FAILED = "Não foi possível cancelar — a tarefa já terminou ou está validando o arquivo"
+NO_DOWNLOAD_ERROR = "Esta tarefa não tem detalhe de erro"
 ALBUM_NO_TRACKS = "Álbum sem faixas para baixar"
 ALBUM_NOTHING_NEW = "nada novo para baixar"
+
+
+def downloads_cleared(count: int) -> str:
+    if count == 1:
+        return "🧹 1 tarefa concluída removida da lista"
+    return f"🧹 {count} tarefas concluídas removidas da lista"
+
+
+def download_error_detail(title: str, error: str) -> str:
+    """Detalhe completo do erro da tarefa (A09), em texto puro."""
+    return f"{title}\n\n{error}" if error else NO_DOWNLOAD_ERROR
 
 
 def retrying_download(title: str) -> str:
@@ -285,6 +316,12 @@ LIBRARY_UNAVAILABLE_TOAST = "⚠️ Falha ao carregar a biblioteca local — det
 LIBRARY_LIKE_NEEDS_DOWNLOAD = "Baixe a faixa primeiro (Ctrl+D) para curtí-la na biblioteca local"
 LIKE_ADDED = "❤️ Curtida (local)"
 LIKE_REMOVED = "Removida das curtidas (local)"
+
+
+def library_limit_notice(shown: int, total: int, label: str) -> str:
+    """Aviso de lista truncada (A18): nunca mostrar 500 sem dizer que há mais."""
+    return f"Mostrando {shown} de {total} {label} — use a busca para filtrar"
+
 
 # --- Playlists locais (T17.1/R3) ---
 PLAYLISTS_EMPTY_TEXT = "Nenhuma playlist ainda.\nUse N para criar a primeira."
@@ -405,6 +442,10 @@ def album_playlist_nothing(album_title: str, missing: int | None) -> str:
 #: Marca de faixa ausente nas listas — legenda honesta junto da lista (R7).
 MISSING_MARK = "⚠"
 MISSING_LEGEND_TEXT = f"{MISSING_MARK} arquivo não encontrado na última reconciliação"
+#: A07: faixa conhecida que ainda não tem arquivo baixado (fila, falha ou
+#: "só stream"). Aparece na listagem com esta marca, nunca como baixada.
+NOT_DOWNLOADED_MARK = "☁"
+NOT_DOWNLOADED_LEGEND_TEXT = f"{NOT_DOWNLOADED_MARK} ainda não baixada (fila ou só stream)"
 SINGLES_SECTION_TEXT = "— Faixas avulsas —"
 
 

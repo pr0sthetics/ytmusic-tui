@@ -29,12 +29,30 @@ from uuid import uuid4
 
 __all__ = [
     "ACTIVE_STATUSES",
+    "DownloadOptions",
     "DownloadOutcome",
     "DownloadStatus",
     "DownloadTask",
     "InvalidTransitionError",
     "TERMINAL_STATUSES",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class DownloadOptions:
+    """Configuração imutável de uma tarefa de download (A05).
+
+    O snapshot é tirado no **enfileiramento** e usado até o fim da tarefa
+    (worker, pós-processamento, caminho final e registro na biblioteca).
+    Mudar ``download_format``/``download_dir``/``embed_metadata`` com um
+    download em voo não pode mais gerar extensão, pós-processador e caminho
+    inconsistentes. Retomar cria um snapshot novo com a configuração atual.
+    """
+
+    audio_format: str
+    quality: str
+    download_dir: Path
+    embed_metadata: bool
 
 
 class DownloadOutcome(StrEnum):
@@ -140,31 +158,56 @@ class DownloadTask:
     speed: str = ""
     eta: str = ""
     file_path: Path | None = None
+    #: Destino final calculado no enfileiramento (A05): o worker não o
+    #: recalcula, então mudar ``download_dir`` com a tarefa em voo não move
+    #: o arquivo nem registra um caminho diferente do publicado.
+    final_path: Path | None = None
+    #: Snapshot imutável da configuração (A05), tirado no enfileiramento.
+    options: DownloadOptions | None = None
     error: str = ""
     # Forward reference: ``DownloadTask`` ainda está sendo definido aqui.
     _future: "asyncio.Future[DownloadTask] | None" = field(default=None, repr=False)
     abort_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    # A15: check + set atômicos. ``RLock`` porque ``try_transition`` e
+    # ``can_transition_to`` podem aninhar; ``compare=False`` para a tarefa
+    # continuar comparável (o lock é infraestrutura, não estado).
+    _transition_lock: threading.RLock = field(
+        default_factory=threading.RLock, repr=False, compare=False
+    )
 
     @property
     def is_terminal(self) -> bool:
         """True quando a tarefa não transiciona mais."""
-        return self.status in TERMINAL_STATUSES
+        with self._transition_lock:
+            return self.status in TERMINAL_STATUSES
 
     def can_transition_to(self, target: DownloadStatus) -> bool:
         """True se a transição é permitida a partir do estado atual."""
-        return target in _ALLOWED[self.status]
+        with self._transition_lock:
+            return target in _ALLOWED[self.status]
+
+    def try_transition(self, target: DownloadStatus) -> bool:
+        """Tenta a transição atomicamente; ``False`` = outro estado venceu.
+
+        A15: check + set sob o lock da tarefa. É o método preferido em
+        corridas esperadas (worker × cancelamento/shutdown): o perdedor não
+        levanta exceção nem sobrescreve o estado final do vencedor.
+        """
+        with self._transition_lock:
+            if target not in _ALLOWED[self.status]:
+                return False
+            self.status = target
+            return True
 
     def transition_to(self, target: DownloadStatus) -> None:
         """Muda de estado validando a máquina (§4.2).
 
         Levanta ``InvalidTransitionError`` quando a transição não existe —
-        nunca "conserta" o estado em silêncio (INV-1). Em corridas esperadas
-        (worker × cancelamento/shutdown), consulte ``can_transition_to``
-        antes de chamar.
+        nunca "conserta" o estado em silêncio (INV-1). O check + set são
+        atômicos (A15); em corridas esperadas, prefira ``try_transition``.
         """
-        if not self.can_transition_to(target):
+        if not self.try_transition(target):
             raise InvalidTransitionError(self.status, target)
-        self.status = target
 
     def make_retry(self) -> "DownloadTask":
         """Cria uma nova tentativa (novo ``id``) referenciando esta tarefa."""

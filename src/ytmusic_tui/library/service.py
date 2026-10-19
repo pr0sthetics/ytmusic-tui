@@ -42,14 +42,23 @@ class AlbumPlaylistResult:
 class LibraryAlbum:
     """Álbum da biblioteca com o retrato exibido na aba (T17.1/R6/R7).
 
-    ``track_count``/``missing_count`` contam as faixas **na biblioteca** (não
-    o total do álbum na loja) — é o que existe agora, com o aviso "⚠ N
-    ausentes" para o que a última reconciliação não achou no disco.
+    ``track_count`` conta as faixas conhecidas do álbum; ``downloaded_count``
+    só as que têm arquivo registrado (A07) e ``missing_count`` as baixadas
+    que a última reconciliação não achou no disco. A distinção é o que
+    impede uma faixa enfileirada/falha de parecer "baixada" na UI.
     """
 
     album: Album
     track_count: int
     missing_count: int
+    downloaded_count: int | None = None
+
+    @property
+    def pending_count(self) -> int:
+        """Faixas conhecidas que ainda não foram baixadas (A07)."""
+        if self.downloaded_count is None:
+            return 0
+        return max(0, self.track_count - self.downloaded_count)
 
     @property
     def primary_artist_name(self) -> str:
@@ -60,6 +69,11 @@ class LibraryAlbum:
         if self.album.artists:
             return str(self.album.artists[0].artist.name)
         return ""
+
+
+#: Limite de linhas por consulta da Biblioteca (A18). A UI compara o total
+#: real com o retornado e avisa "mostrando N de M" — nunca trunca em silêncio.
+LIBRARY_PAGE_LIMIT = 500
 
 
 def _album_track_order() -> list[Any]:
@@ -412,7 +426,7 @@ class LibraryService:
 
     # ===== Visão da biblioteca local (T17.1/R6/R7) =====
 
-    def list_library_albums(self, limit: int = 500) -> list[LibraryAlbum]:
+    def list_library_albums(self, limit: int = LIBRARY_PAGE_LIMIT) -> list[LibraryAlbum]:
         """Álbuns com faixas na biblioteca, em ordem de título (T17.1/R6).
 
         A ordem é fixada aqui (``str.casefold``) — a UI e os testes não
@@ -438,14 +452,17 @@ class LibraryService:
             LibraryAlbum(
                 album=album,
                 track_count=len(album.tracks),
-                missing_count=sum(1 for track in album.tracks if track.is_missing),
+                missing_count=sum(
+                    1 for track in album.tracks if track.is_downloaded and track.is_missing
+                ),
+                downloaded_count=sum(1 for track in album.tracks if track.is_downloaded),
             )
             for album in albums
             if album.tracks
         ]
         return sorted(summaries, key=lambda item: str(item.album.title).casefold())
 
-    def list_album_tracks(self, album_id: int, limit: int = 500) -> list[Track]:
+    def list_album_tracks(self, album_id: int, limit: int = LIBRARY_PAGE_LIMIT) -> list[Track]:
         """Faixas de um álbum na ordem de álbum (T17.1/R6/R7)."""
         with self.db.session() as session:
             return list(
@@ -463,7 +480,7 @@ class LibraryService:
                 .all()
             )
 
-    def list_standalone_tracks(self, limit: int = 500) -> list[Track]:
+    def list_standalone_tracks(self, limit: int = LIBRARY_PAGE_LIMIT) -> list[Track]:
         """Faixas sem álbum ("Faixas avulsas"), em ordem de título (T17.1/R6)."""
         with self.db.session() as session:
             tracks = list(
@@ -481,6 +498,35 @@ class LibraryService:
                 .all()
             )
         return sorted(tracks, key=lambda track: str(track.title).casefold())
+
+    def count_library_albums(self) -> int:
+        """Total de álbuns com faixas na biblioteca (A18, para o aviso de limite)."""
+        with self.db.session() as session:
+            return int(
+                session.execute(
+                    select(func.count(func.distinct(Track.album_id))).where(
+                        Track.album_id.is_not(None)
+                    )
+                ).scalar_one()
+            )
+
+    def count_album_tracks(self, album_id: int) -> int:
+        """Total de faixas conhecidas do álbum (A18)."""
+        with self.db.session() as session:
+            return int(
+                session.execute(
+                    select(func.count(Track.id)).where(Track.album_id == album_id)
+                ).scalar_one()
+            )
+
+    def count_standalone_tracks(self) -> int:
+        """Total de faixas avulsas (A18)."""
+        with self.db.session() as session:
+            return int(
+                session.execute(
+                    select(func.count(Track.id)).where(Track.album_id.is_(None))
+                ).scalar_one()
+            )
 
     def toggle_like(self, track_id: int) -> bool:
         """Alterna status de 'gostei' da faixa (uma transação — R3/T05)."""
@@ -667,12 +713,20 @@ class LibraryService:
 
     def add_track_to_playlist(self, playlist_id: int, track_id: int, position: int = -1) -> bool:
         """Adiciona faixa à playlist (deslocamento, entrada e contador numa
-        transação só — R3/T05)."""
+        transação só — R3/T05).
+
+        A06: idempotente. Se a faixa já está na playlist (corrida entre a
+        checagem da UI e o INSERT), devolve ``True`` sem violar a PK nem
+        levantar ``IntegrityError`` — a intenção do usuário já está
+        satisfeita.
+        """
         with self.db.session() as session:
             playlist = session.get(Playlist, playlist_id)
             track = session.get(Track, track_id)
             if not playlist or not track:
                 return False
+            if session.get(PlaylistTrack, (playlist_id, track_id)) is not None:
+                return True
 
             if position < 0:
                 # Adicionar no final

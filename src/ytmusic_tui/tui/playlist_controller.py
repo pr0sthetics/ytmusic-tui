@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, cast
 
 from textual.widgets import Static, TabbedContent
 from textual.worker import Worker
@@ -23,6 +23,7 @@ from ytmusic_tui.tui.dialogs import (
     NameInputScreen,
     PlaylistPickerScreen,
 )
+from ytmusic_tui.tui.guards import guard_write
 from ytmusic_tui.tui.messages import (
     ALBUM_PLAYLIST_HINT,
     MISSING_LEGEND_TEXT,
@@ -60,6 +61,8 @@ from ytmusic_tui.tui.messages import (
 from ytmusic_tui.tui.widgets import PlaylistListView, SongListView, TrackListView
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 
 class _PlaylistViews(NamedTuple):
@@ -109,6 +112,16 @@ class PlaylistController:
         def _startup_db_error(self) -> LibraryError | None: ...
         def _selected_library_track(self) -> LibraryTrack | None: ...
         def _selected_library_album(self) -> LibraryAlbum | None: ...
+
+    def _guarded(self, operation: Callable[[], T], *, event: str, what: str) -> T | None:
+        """Executa uma escrita da biblioteca com a guarda de erro (A06)."""
+        return guard_write(
+            operation,
+            toast=self._toast,
+            component="tui.playlists",
+            event=event,
+            what=what,
+        )
 
     def refresh_playlists(self) -> Worker[None]:
         """Agenda a atualização da aba Playlists (nível 1 ou detalhe).
@@ -343,7 +356,13 @@ class PlaylistController:
     def _on_playlist_name_for_create(self, name: str | None) -> None:
         if not name:
             return  # Esc cancela: nada muda.
-        library.create_playlist(name)
+        playlist = self._guarded(
+            lambda: library.create_playlist(name),
+            event="playlist_create_failed",
+            what="criar a playlist",
+        )
+        if playlist is None:
+            return
         self.refresh_playlists()
         self._toast(playlist_created(name))
 
@@ -357,6 +376,7 @@ class PlaylistController:
                 PLAYLIST_RENAME_PROMPT,
                 PLAYLIST_NAME_PLACEHOLDER,
                 initial=str(playlist.name),
+                submit_label="Salvar",
             ),
             self._on_playlist_name_for_rename,
         )
@@ -365,7 +385,14 @@ class PlaylistController:
         playlist = self._selected_playlist()
         if not name or playlist is None:
             return
-        if not library.rename_playlist(cast(int, playlist.id), name):
+        renamed = self._guarded(
+            lambda: library.rename_playlist(cast(int, playlist.id), name),
+            event="playlist_rename_failed",
+            what="renomear a playlist",
+        )
+        if renamed is None:
+            return
+        if not renamed:
             self._toast(PLAYLIST_RENAME_FAILED)
             return
         self.refresh_playlists()
@@ -396,7 +423,14 @@ class PlaylistController:
         if playlist is None:
             return
         name = str(playlist.name)
-        if not library.delete_playlist(cast(int, playlist.id)):
+        deleted = self._guarded(
+            lambda: library.delete_playlist(cast(int, playlist.id)),
+            event="playlist_delete_failed",
+            what="excluir a playlist",
+        )
+        if deleted is None:
+            return
+        if not deleted:
             self._toast(PLAYLIST_DELETE_FAILED)
             return
         self.refresh_playlists()
@@ -530,7 +564,13 @@ class PlaylistController:
         """Cria a playlist pedida no fluxo e segue com ela (R4)."""
         if not name:
             return  # Esc cancela: nada criado, nada adicionado.
-        playlist = library.create_playlist(name)
+        playlist = self._guarded(
+            lambda: library.create_playlist(name),
+            event="playlist_create_failed",
+            what="criar a playlist",
+        )
+        if playlist is None:
+            return
         self.refresh_playlists()
         self._toast(playlist_created(name))
         on_playlist(playlist)
@@ -541,7 +581,13 @@ class PlaylistController:
         if self._playlist_has_track(playlist, cast(int, track.id)):
             self._toast(playlist_track_already(str(track.title), name))
             return
-        added = library.add_track_to_playlist(cast(int, playlist.id), cast(int, track.id))
+        added = self._guarded(
+            lambda: library.add_track_to_playlist(cast(int, playlist.id), cast(int, track.id)),
+            event="playlist_add_track_failed",
+            what="adicionar a faixa à playlist",
+        )
+        if added is None:
+            return  # a guarda já mostrou o toast de erro
         if not added:
             self._toast(PLAYLIST_ADD_FAILED)
             return
@@ -555,10 +601,15 @@ class PlaylistController:
         total do álbum é conhecido (``track_count`` no modelo) — quantas
         ficaram fora da biblioteca. Nada é maquiado para "tudo certo".
         """
-        result = library.add_album_to_playlist(cast(int, playlist.id), cast(int, entry.album.id))
+        result = self._guarded(
+            lambda: library.add_album_to_playlist(
+                cast(int, playlist.id), cast(int, entry.album.id)
+            ),
+            event="playlist_add_album_failed",
+            what="adicionar o álbum à playlist",
+        )
         if result is None:
-            self._toast(PLAYLIST_ADD_FAILED)
-            return
+            return  # guarda já mostrou o toast; ou álbum/playlist sumiram
         missing: int | None = None
         if result.album_total is not None:
             missing = max(0, result.album_total - result.added - result.already)
@@ -599,8 +650,11 @@ class PlaylistController:
         track = view.get_selected_track()
         if track is None:
             return
-        removed = library.remove_track_from_playlist(
-            cast(int, self._playlist_open.id), cast(int, track.id)
+        playlist_id = cast(int, self._playlist_open.id)
+        removed = self._guarded(
+            lambda: library.remove_track_from_playlist(playlist_id, cast(int, track.id)),
+            event="playlist_remove_track_failed",
+            what="remover a faixa da playlist",
         )
         if not removed:
             return
@@ -645,7 +699,15 @@ class PlaylistController:
             return
         tracks[index], tracks[target] = tracks[target], tracks[index]
         order = [cast(int, item.id) for item in tracks]
-        if not library.reorder_playlist_tracks(cast(int, self._playlist_open.id), order):
+        playlist_id = cast(int, self._playlist_open.id)
+        reordered = self._guarded(
+            lambda: library.reorder_playlist_tracks(playlist_id, order),
+            event="playlist_reorder_failed",
+            what="reordenar a playlist",
+        )
+        if reordered is None:
+            return  # a guarda já mostrou o toast de erro
+        if not reordered:
             self._toast(PLAYLIST_REORDER_FAILED)
             return
         self._playlist_select_id = cast(int, track.id)

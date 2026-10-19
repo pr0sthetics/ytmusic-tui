@@ -12,9 +12,10 @@ from ytmusic_tui.library import library
 from ytmusic_tui.library.errors import LibraryError, describe_library_error
 from ytmusic_tui.library.models import Track as LibraryTrack
 from ytmusic_tui.library.recovery import reconcile
-from ytmusic_tui.library.service import LibraryAlbum
+from ytmusic_tui.library.service import LIBRARY_PAGE_LIMIT, LibraryAlbum
 from ytmusic_tui.log import log_event, log_file_path
 from ytmusic_tui.player import player
+from ytmusic_tui.tui.guards import guard_write
 from ytmusic_tui.tui.messages import (
     LIBRARY_EMPTY_TEXT,
     LIBRARY_LIKE_NEEDS_DOWNLOAD,
@@ -24,7 +25,9 @@ from ytmusic_tui.tui.messages import (
     LIKE_REMOVED,
     MISSING_LEGEND_TEXT,
     NO_TRACK_PLAYING,
+    NOT_DOWNLOADED_LEGEND_TEXT,
     escape_markup,
+    library_limit_notice,
     library_unavailable,
     reconciliation_summary,
 )
@@ -111,11 +114,20 @@ class LibraryController:
 
         album_open = self._library_album
         try:
-            albums, singles = await asyncio.to_thread(self._load_library_overview)
+            albums, singles, album_total, single_total = await asyncio.to_thread(
+                self._load_library_overview
+            )
             tracks: list[LibraryTrack] = []
+            track_total = 0
             if album_open is not None:
+                album_id = cast(int, album_open.album.id)
                 tracks = await asyncio.to_thread(
-                    library.list_album_tracks, cast(int, album_open.album.id), 500
+                    library.list_album_tracks, album_id, LIBRARY_PAGE_LIMIT
+                )
+                track_total = (
+                    await asyncio.to_thread(library.count_album_tracks, album_id)
+                    if len(tracks) >= LIBRARY_PAGE_LIMIT
+                    else len(tracks)
                 )
         except LibraryError as error:
             self._log_library_failure(error)
@@ -139,17 +151,31 @@ class LibraryController:
             current = next((item for item in albums if item.album.id == album_open.album.id), None)
             if current is None:
                 self._library_album = None
-                self._render_library_overview(views, albums, singles)
+                self._render_library_overview(views, albums, singles, album_total, single_total)
                 return
             self._library_album = current
-            self._render_library_album(views, current, tracks)
+            self._render_library_album(views, current, tracks, track_total)
             return
-        self._render_library_overview(views, albums, singles)
+        self._render_library_overview(views, albums, singles, album_total, single_total)
 
     @staticmethod
-    def _load_library_overview() -> tuple[list[LibraryAlbum], list[LibraryTrack]]:
-        """Leitura do nível 1 (uma passada de thread para os dois lados)."""
-        return library.list_library_albums(limit=500), library.list_standalone_tracks(limit=500)
+    def _load_library_overview() -> tuple[list[LibraryAlbum], list[LibraryTrack], int, int]:
+        """Leitura do nível 1 + totais para o aviso de limite (A18).
+
+        O total só é consultado quando a página veio cheia; abaixo do limite
+        o tamanho da lista já é o total.
+        """
+        albums = library.list_library_albums(limit=LIBRARY_PAGE_LIMIT)
+        singles = library.list_standalone_tracks(limit=LIBRARY_PAGE_LIMIT)
+        album_total = (
+            library.count_library_albums() if len(albums) >= LIBRARY_PAGE_LIMIT else len(albums)
+        )
+        single_total = (
+            library.count_standalone_tracks()
+            if len(singles) >= LIBRARY_PAGE_LIMIT
+            else len(singles)
+        )
+        return albums, singles, album_total, single_total
 
     def _log_library_failure(self, error: Exception) -> None:
         log_event(
@@ -174,12 +200,18 @@ class LibraryController:
         views.message.display = True
 
     def _render_library_overview(
-        self, views: _LibraryViews, albums: list[LibraryAlbum], singles: list[LibraryTrack]
+        self,
+        views: _LibraryViews,
+        albums: list[LibraryAlbum],
+        singles: list[LibraryTrack],
+        album_total: int,
+        single_total: int,
     ) -> None:
-        """Nível 1: álbuns (+ seção de avulsas quando existem) — R6/R7.
+        """Nível 1: álbuns (+ seção de avulsas quando existem) — R6/R7/A18.
 
         A seção "Faixas avulsas" só aparece quando há faixas sem álbum; o
         banco indisponível nunca cai aqui (mensagem própria, não "vazio").
+        Lista truncada no limite ganha aviso com o total real.
         """
         views.header.display = False
         views.tracks.display = False
@@ -190,28 +222,67 @@ class LibraryController:
         has_missing = any(item.missing_count for item in albums) or any(
             track.is_missing for track in singles
         )
-        self._render_missing_legend(views, has_missing)
+        has_pending = any(item.pending_count for item in albums) or any(
+            not track.is_downloaded for track in singles
+        )
+        notices: list[str] = []
+        if len(albums) < album_total:
+            notices.append(library_limit_notice(len(albums), album_total, "álbuns"))
+        if len(singles) < single_total:
+            notices.append(library_limit_notice(len(singles), single_total, "faixas avulsas"))
+        self._render_library_legend(
+            views,
+            missing=has_missing,
+            pending=has_pending,
+            notices=notices,
+        )
         if (albums or singles) and views.albums.has_focus and views.albums.index is None:
             views.albums.index = 0
 
     def _render_library_album(
-        self, views: _LibraryViews, entry: LibraryAlbum, tracks: list[LibraryTrack]
+        self,
+        views: _LibraryViews,
+        entry: LibraryAlbum,
+        tracks: list[LibraryTrack],
+        track_total: int,
     ) -> None:
         """Modo álbum (expandido na aba): cabeçalho + faixas em ordem (R6)."""
         views.albums.display = False
         views.message.display = False
-        views.header.update(self._library_album_header(entry, len(tracks)))
+        views.header.update(self._library_album_header(entry, track_total))
         views.header.display = True
         views.tracks.set_tracks(tracks)
         views.tracks.display = True
-        self._render_missing_legend(views, any(track.is_missing for track in tracks))
+        notices = (
+            [library_limit_notice(len(tracks), track_total, "faixas do álbum")]
+            if len(tracks) < track_total
+            else []
+        )
+        self._render_library_legend(
+            views,
+            missing=any(track.is_missing for track in tracks),
+            pending=any(not track.is_downloaded for track in tracks),
+            notices=notices,
+        )
         if tracks and views.tracks.has_focus and views.tracks.index is None:
             views.tracks.index = 0
 
-    def _render_missing_legend(self, views: _LibraryViews, visible: bool) -> None:
-        """Legenda das ausências (R7): só aparece quando há o que explicar."""
-        views.legend.display = visible
-        views.legend.update(MISSING_LEGEND_TEXT)
+    def _render_library_legend(
+        self,
+        views: _LibraryViews,
+        *,
+        missing: bool,
+        pending: bool,
+        notices: list[str] | None = None,
+    ) -> None:
+        """Legenda dos estados (R7/A07) + aviso de limite (A18)."""
+        lines: list[str] = list(notices or [])
+        if missing:
+            lines.append(MISSING_LEGEND_TEXT)
+        if pending:
+            lines.append(NOT_DOWNLOADED_LEGEND_TEXT)
+        views.legend.display = bool(lines)
+        views.legend.update("\n".join(lines))
 
     @staticmethod
     def _library_album_header(entry: LibraryAlbum, track_count: int) -> str:
@@ -365,5 +436,13 @@ class LibraryController:
         if not lib_track:
             self._toast(LIBRARY_LIKE_NEEDS_DOWNLOAD)
             return
-        liked = library.toggle_like(cast(int, lib_track.id))
+        liked = guard_write(
+            lambda: library.toggle_like(cast(int, lib_track.id)),
+            toast=self._toast,
+            component="tui.library",
+            event="track_like_failed",
+            what="curtir/descurtir a faixa",
+        )
+        if liked is None:
+            return
         self._toast(LIKE_ADDED if liked else LIKE_REMOVED)

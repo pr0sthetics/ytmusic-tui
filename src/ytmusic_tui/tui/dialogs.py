@@ -4,9 +4,9 @@ from collections.abc import Iterable
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Label, ListItem, ListView, Static
+from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from ytmusic_tui.library.models import Playlist
 from ytmusic_tui.tui.messages import (
@@ -60,6 +60,31 @@ class HelpScreen(ModalScreen[None]):
             yield Static("\n".join(lines), id="help-content", markup=True)
 
 
+class ErrorDetailScreen(ModalScreen[None]):
+    """Detalhe completo do erro de uma tarefa de download (A09).
+
+    A tabela mostra só um resumo curto; ``i`` abre este modal com o texto
+    integral (já mascarado por ``_set_failed``). Esc/Enter/i fecham — sem
+    botão destrutivo: ler o erro nunca altera nada.
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Fechar"),
+        Binding("enter", "dismiss", "Fechar"),
+        Binding("i", "dismiss", "Fechar"),
+    ]
+
+    def __init__(self, title: str, detail: str) -> None:
+        super().__init__()
+        self._title = title
+        self._detail = detail
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="detail-box"):
+            yield Static(self._title, id="detail-title", markup=False)
+            yield Static(self._detail, id="detail-body", markup=False)
+
+
 class ConfirmScreen(ModalScreen[bool]):
     """Confirmação modal de ação destrutiva (T12-R4).
 
@@ -83,6 +108,16 @@ class ConfirmScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-box"):
             yield Static(self._message, id="confirm-message", markup=False)
+            with Horizontal(id="confirm-buttons"):
+                yield Button("Confirmar", id="confirm-yes", variant="error")
+                yield Button("Cancelar", id="confirm-no")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """A17: mouse também confirma/cancela (o README promete mouse)."""
+        if event.button.id == "confirm-yes":
+            self.action_confirm()
+        elif event.button.id == "confirm-no":
+            self.action_cancel()
 
     def action_confirm(self) -> None:
         self.dismiss(True)
@@ -103,11 +138,18 @@ class NameInputScreen(ModalScreen[str | None]):
         Binding("escape", "cancel", "Cancelar"),
     ]
 
-    def __init__(self, title: str, placeholder: str = "", initial: str = "") -> None:
+    def __init__(
+        self,
+        title: str,
+        placeholder: str = "",
+        initial: str = "",
+        submit_label: str = "Criar",
+    ) -> None:
         super().__init__()
         self._title = title
         self._placeholder = placeholder
         self._initial = initial
+        self._submit_label = submit_label
 
     def compose(self) -> ComposeResult:
         with Vertical(id="name-box"):
@@ -118,12 +160,25 @@ class NameInputScreen(ModalScreen[str | None]):
                 id="name-input",
             )
             yield Static("", id="name-error", markup=False)
+            with Horizontal(id="name-buttons"):
+                yield Button(self._submit_label, id="name-submit", variant="primary")
+                yield Button("Cancelar", id="name-cancel")
 
     def on_mount(self) -> None:
         self.query_one("#name-input", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        name = event.value.strip()
+        self._submit(event.value)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """A17: confirma/cancela pelo mouse, com a mesma validação do Enter."""
+        if event.button.id == "name-submit":
+            self._submit(self.query_one("#name-input", Input).value)
+        elif event.button.id == "name-cancel":
+            self.action_cancel()
+
+    def _submit(self, raw_name: str) -> None:
+        name = raw_name.strip()
         if not name:
             self.query_one("#name-error", Static).update(PLAYLIST_NAME_REQUIRED)
             return
@@ -158,6 +213,13 @@ class PlaylistPickerScreen(ModalScreen["Playlist | str | None"]):
             if not self._playlists:
                 yield Static(PLAYLIST_PICKER_EMPTY, id="picker-empty", markup=False)
             yield ListView(id="picker-list")
+            with Horizontal(id="picker-buttons"):
+                yield Button("Cancelar", id="picker-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """A17: fecha o picker pelo mouse sem escolher playlist."""
+        if event.button.id == "picker-cancel":
+            self.action_cancel()
 
     def on_mount(self) -> None:
         view = self.query_one("#picker-list", ListView)

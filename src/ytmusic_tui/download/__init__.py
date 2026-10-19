@@ -39,6 +39,7 @@ from ytmusic_tui.download.store import DownloadTaskStore, hydrate_interrupted
 # re-exportados aqui para os imports existentes (TUI, testes).
 from ytmusic_tui.download.task import (
     ACTIVE_STATUSES,
+    DownloadOptions,
     DownloadOutcome,
     DownloadStatus,
     DownloadTask,
@@ -55,6 +56,7 @@ from ytmusic_tui.urls import WATCH_URL_TEMPLATE as WATCH_URL
 
 __all__ = [
     "DownloadManager",
+    "DownloadOptions",
     "DownloadOutcome",
     "DownloadStatus",
     "DownloadTask",
@@ -80,6 +82,20 @@ _yt_dlp_module: Any | None = None
 YDL_SOCKET_TIMEOUT = 30
 YDL_RETRIES = 3
 YDL_FRAGMENT_RETRIES = 3
+
+
+def _snapshot_options() -> DownloadOptions:
+    """Congela a configuração relevante para uma tarefa (A05).
+
+    Chamado no enfileiramento e na retomada. A partir daí o worker lê só o
+    snapshot — alterações na aba Config não mudam uma tarefa já em voo.
+    """
+    return DownloadOptions(
+        audio_format=settings.download_format,
+        quality=settings.download_quality,
+        download_dir=settings.download_dir,
+        embed_metadata=settings.embed_metadata,
+    )
 
 
 def _load_yt_dlp() -> Any:
@@ -209,22 +225,47 @@ class DownloadManager:
         self._executor = ThreadPoolExecutor(max_workers=workers)
         old.shutdown(wait=False)
 
-    def _get_output_template(self, task: DownloadTask) -> str:
+    def _options_for(self, task: DownloadTask) -> DownloadOptions:
+        """Snapshot de configuração da tarefa (A05).
+
+        Criado no enfileiramento; tarefas construídas diretamente (testes,
+        chamadas internas) recebem um snapshot na primeira leitura, que já
+        fica congelado para o resto da execução.
+        """
+        if task.options is None:
+            task.options = _snapshot_options()
+        return task.options
+
+    def _get_output_template(
+        self, task: DownloadTask, options: DownloadOptions | None = None
+    ) -> str:
         """Template de saída do yt-dlp — normalização única do §8.1/T06."""
+        snapshot = options or self._options_for(task)
         return build_output_template(
-            download_dir=settings.download_dir,
+            download_dir=snapshot.download_dir,
             artist=task.artist,
             title=task.title,
             album=task.album,
         )
 
-    def _get_ydl_options(self, task: DownloadTask, outtmpl: str | None = None) -> dict[str, Any]:
+    def _get_ydl_options(
+        self,
+        task: DownloadTask,
+        outtmpl: str | None = None,
+        options: DownloadOptions | None = None,
+    ) -> dict[str, Any]:
         """Opções do yt-dlp para download.
 
-        ``outtmpl`` permite apontar a saída para o temporário da reserva
-        (§5.1/T03); sem ele, usa o template final (compatibilidade).
+        Usa APENAS o snapshot ``options`` (A05), nunca o ``settings`` atual:
+        mudar formato/qualidade/metadados com a tarefa em voo não altera o
+        pós-processamento pela metade. ``outtmpl`` permite apontar a saída
+        para o temporário da reserva (§5.1/T03); sem ele, usa o template
+        final (compatibilidade).
         """
-        output_template = outtmpl if outtmpl is not None else self._get_output_template(task)
+        snapshot = options or self._options_for(task)
+        output_template = (
+            outtmpl if outtmpl is not None else self._get_output_template(task, snapshot)
+        )
 
         # Formato de áudio
         format_map = {
@@ -233,7 +274,7 @@ class DownloadManager:
             "m4a": "bestaudio[ext=m4a]/bestaudio",
             "flac": "bestaudio[ext=flac]/bestaudio",
         }
-        audio_format = format_map.get(settings.download_format, "bestaudio")
+        audio_format = format_map.get(snapshot.audio_format, "bestaudio")
 
         opts: dict[str, Any] = {
             "format": audio_format,
@@ -249,7 +290,7 @@ class DownloadManager:
             "socket_timeout": YDL_SOCKET_TIMEOUT,
             "retries": YDL_RETRIES,
             "fragment_retries": YDL_FRAGMENT_RETRIES,
-            "writethumbnail": settings.embed_metadata,
+            "writethumbnail": snapshot.embed_metadata,
             "postprocessors": [],
             "progress_hooks": [lambda d: self._progress_hook(task, d)],
             # post_hooks recebem o caminho FINAL (após os post-processadores,
@@ -258,30 +299,30 @@ class DownloadManager:
         }
 
         # Post-processadores para conversão + metadados/capa
-        if settings.download_format == "mp3":
+        if snapshot.audio_format == "mp3":
             opts["postprocessors"].append(
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
-                    "preferredquality": settings.download_quality,
+                    "preferredquality": snapshot.quality,
                 }
             )
-        elif settings.download_format == "opus":
+        elif snapshot.audio_format == "opus":
             opts["postprocessors"].append(
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "opus",
-                    "preferredquality": settings.download_quality,
+                    "preferredquality": snapshot.quality,
                 }
             )
-        elif settings.download_format == "m4a":
+        elif snapshot.audio_format == "m4a":
             opts["postprocessors"].append(
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "m4a",
                 }
             )
-        elif settings.download_format == "flac":
+        elif snapshot.audio_format == "flac":
             opts["postprocessors"].append(
                 {
                     "key": "FFmpegExtractAudio",
@@ -289,7 +330,7 @@ class DownloadManager:
                 }
             )
 
-        if settings.embed_metadata:
+        if snapshot.embed_metadata:
             # O EmbedThumbnail remove o .webp temporário ao terminar (quando
             # "already_have_thumbnail" não é passado) e o FFmpegMetadata grava
             # as tags — ambos válidos para qualquer formato de saída.
@@ -335,27 +376,37 @@ class DownloadManager:
             # está por vir — o status final é definido em _download_task.
             task.progress = 100.0
 
-    def _final_path_for(self, task: DownloadTask) -> Path:
+    def _final_path_for(self, task: DownloadTask, options: DownloadOptions | None = None) -> Path:
         """Caminho final publicado — mesma composição do template (§8.1)."""
+        snapshot = options or self._options_for(task)
         return final_path_for(
-            download_dir=settings.download_dir,
+            download_dir=snapshot.download_dir,
             artist=task.artist,
             title=task.title,
             album=task.album,
-            extension=settings.download_format,
+            extension=snapshot.audio_format,
         )
 
-    def _configured_bitrate(self) -> int:
-        """Bitrate da configuração (fallback 320 quando não numérico)."""
-        return int(settings.download_quality) if settings.download_quality.isdigit() else 320
+    def _configured_bitrate(self, options: DownloadOptions) -> int:
+        """Bitrate do snapshot (fallback 320 quando não numérico)."""
+        return int(options.quality) if options.quality.isdigit() else 320
 
-    def _register_track_file(self, task: DownloadTask, final_path: Path, *, bitrate: int) -> None:
+    def _register_track_file(
+        self,
+        task: DownloadTask,
+        final_path: Path,
+        *,
+        bitrate: int,
+        options: DownloadOptions | None = None,
+    ) -> None:
         """Registra o arquivo publicado na biblioteca (passo 7 do §5.1).
 
         ``bitrate=0`` no caminho de import (Q2(a)/reconciliação): o valor é
         desconhecido sem reanalisar o arquivo, mas ``update_track_file``
         exige o argumento — zero fica documentado como "desconhecido".
+        ``options.audio_format`` vem do snapshot (A05), não da config atual.
         """
+        snapshot = options or self._options_for(task)
         track_id = task.track_id
         if not track_id:
             track_id = (
@@ -381,19 +432,25 @@ class DownloadManager:
             track_id,
             final_path,
             final_path.stat().st_size,
-            settings.download_format,
+            snapshot.audio_format,
             bitrate,
         )
 
-    def _adopt_existing_file(self, task: DownloadTask, final_path: Path) -> DownloadTask:
+    def _adopt_existing_file(
+        self,
+        task: DownloadTask,
+        final_path: Path,
+        options: DownloadOptions | None = None,
+    ) -> DownloadTask:
         """Política Q2(a): arquivo já existe → não baixa; valida e registra.
 
         Nunca sobrescreve: o existente precisa passar na validação (§5.1,
         passo 5) para ser registrado; inválido → ``FAILED`` com mensagem
         clara. ``COMPLETED`` só com arquivo válido **e** registro feito.
         """
+        snapshot = options or self._options_for(task)
         try:
-            validate_media_file(final_path, settings.download_format)
+            validate_media_file(final_path, snapshot.audio_format)
         except MediaValidationError as e:
             logger.warning("Arquivo existente inválido em %s: %s", final_path, e)
             self._set_failed(
@@ -404,7 +461,7 @@ class DownloadManager:
         task.file_path = final_path
         task.progress = 100.0
         try:
-            self._register_track_file(task, final_path, bitrate=0)
+            self._register_track_file(task, final_path, bitrate=0, options=snapshot)
         except Exception as e:
             logger.exception("Falha ao registrar arquivo existente de %s na biblioteca", task.id)
             self._set_failed(
@@ -414,9 +471,8 @@ class DownloadManager:
             )
             return task
 
-        if not task.can_transition_to(DownloadStatus.COMPLETED):
+        if not task.try_transition(DownloadStatus.COMPLETED):
             return task
-        task.transition_to(DownloadStatus.COMPLETED)
         # T17.1/R8: o desfecho fica registrado na tarefa — a aba Downloads
         # mostra "Já existia" em vez de fingir que baixou.
         task.outcome = DownloadOutcome.EXISTING_ADOPTED
@@ -440,10 +496,10 @@ class DownloadManager:
         Em corrida com cancelamento/shutdown (que fecham a tarefa antes), a
         transição já não é válida e o estado final existente é preservado.
         """
-        if not task.can_transition_to(DownloadStatus.FAILED):
+        masked = mask_diagnostics(error)
+        if not task.try_transition(DownloadStatus.FAILED):
             return
-        task.error = mask_diagnostics(error)
-        task.transition_to(DownloadStatus.FAILED)
+        task.error = masked
         ffmpeg_exit = _FFMPEG_EXIT_RE.search(error)
         if ffmpeg_exit is not None:
             error_code = f"FFMPEG_EXIT_{ffmpeg_exit.group(1)}"
@@ -459,32 +515,34 @@ class DownloadManager:
     @staticmethod
     def _finish_cancelled(task: DownloadTask) -> None:
         """Fecha como CANCELLED se a máquina permitir (não sobrescreve terminal)."""
-        if task.can_transition_to(DownloadStatus.CANCELLED):
+        if task.try_transition(DownloadStatus.CANCELLED):
             task.error = "Cancelado"
-            task.transition_to(DownloadStatus.CANCELLED)
 
     def _download_task(self, task: DownloadTask) -> DownloadTask:
         """Executa o download em thread separada, pela ordem do §5.1 (T03).
 
         ``COMPLETED`` só depois de publicar (6) e registrar (7); qualquer
-        falha vira ``FAILED`` — nunca sucesso falso (INV-1). As guardas de
-        corrida do T02 (cancelamento/encerramento) continuam valendo antes
-        de cada transição.
+        falha vira ``FAILED`` — nunca sucesso falso (INV-1). As transições
+        usam ``try_transition`` (A15) e a configuração vem do snapshot
+        ``task.options`` (A05), nunca do ``settings`` mutável.
         """
+        options = self._options_for(task)
         # Cancelada na fila ou interrompida pelo shutdown antes de começar:
         # o estado final já existe — o worker apenas encerra.
-        if not task.can_transition_to(DownloadStatus.RUNNING):
+        if not task.try_transition(DownloadStatus.RUNNING):
             return task
-        task.transition_to(DownloadStatus.RUNNING)
         self._persist_status(task)
         log_event("download", "download_started", "Download iniciado", operation_id=task.id)
 
-        download_dir = settings.download_dir
+        download_dir = options.download_dir
+        # A05: o caminho persistido no enfileiramento é a fonte de verdade;
+        # só é recalculado quando a tarefa não o tem (chamada interna/teste).
+        final_path = task.final_path or self._final_path_for(task, options)
+        task.final_path = final_path
         try:
-            final_path = self._final_path_for(task)
             validate_input(
                 video_id=task.video_id,
-                audio_format=settings.download_format,
+                audio_format=options.audio_format,
                 final_path=final_path,
                 download_dir=download_dir,
             )
@@ -495,11 +553,10 @@ class DownloadManager:
 
         # Q2(a): destino já existe → não baixa; valida e registra o existente.
         if final_path.exists():
-            if not task.can_transition_to(DownloadStatus.VALIDATING):
+            if not task.try_transition(DownloadStatus.VALIDATING):
                 return task
-            task.transition_to(DownloadStatus.VALIDATING)
             self._persist_status(task)
-            return self._adopt_existing_file(task, final_path)
+            return self._adopt_existing_file(task, final_path, options)
 
         # §8.4/T06: dependências ausentes (yt-dlp/ffmpeg) → erro claro ANTES
         # de reservar; nada de crash no meio nem temporário órfão.
@@ -536,7 +593,7 @@ class DownloadManager:
 
             try:
                 with yt_dlp.YoutubeDL(
-                    self._get_ydl_options(task, reservation.temp_template)
+                    self._get_ydl_options(task, reservation.temp_template, options)
                 ) as ydl:
                     ydl.download([url])
             except Exception as e:
@@ -561,13 +618,12 @@ class DownloadManager:
 
             # Corrida conhecida: cancelamento/encerramento entre o fim do
             # yt-dlp e a validação já definiu o estado final — não sobrescrever.
-            if not task.can_transition_to(DownloadStatus.VALIDATING):
+            if not task.try_transition(DownloadStatus.VALIDATING):
                 return task
-            task.transition_to(DownloadStatus.VALIDATING)
             self._persist_status(task)
 
             try:
-                temp = validate_media_file(task.file_path, settings.download_format)
+                temp = validate_media_file(task.file_path, options.audio_format)
                 # §8.1/T06: revalida a contenção imediatamente antes de
                 # publicar — um diretório trocado por symlink DURANTE o
                 # download não publica nada fora de download_dir.
@@ -588,7 +644,12 @@ class DownloadManager:
             task.file_path = final_path
 
             try:
-                self._register_track_file(task, final_path, bitrate=self._configured_bitrate())
+                self._register_track_file(
+                    task,
+                    final_path,
+                    bitrate=self._configured_bitrate(options),
+                    options=options,
+                )
             except Exception as e:
                 # Arquivo publicado sem registro (risco §1.3): falha explícita,
                 # nunca COMPLETED; a reconciliação (§5.3/T03) importa o órfão.
@@ -600,9 +661,8 @@ class DownloadManager:
                 )
                 return task
 
-            if not task.can_transition_to(DownloadStatus.COMPLETED):
+            if not task.try_transition(DownloadStatus.COMPLETED):
                 return task
-            task.transition_to(DownloadStatus.COMPLETED)
             log_event("download", "download_finished", "Download concluído", operation_id=task.id)
             return task
         finally:
@@ -650,7 +710,14 @@ class DownloadManager:
         disc_number: int | None = None,
         album_track_count: int | None = None,
     ) -> DownloadTask:
-        """Adiciona à fila de downloads."""
+        """Adiciona à fila de downloads com um snapshot da configuração (A05).
+
+        O formato, a qualidade, o diretório e ``embed_metadata`` são
+        congelados aqui: o worker usa exatamente estes valores, mesmo que a
+        aba Config mude antes de a tarefa terminar. O caminho final também é
+        calculado agora e persistido (não é recalculado no worker).
+        """
+        options = _snapshot_options()
         task = DownloadTask(
             video_id=video_id,
             title=title,
@@ -661,14 +728,17 @@ class DownloadManager:
             track_number=track_number,
             disc_number=disc_number,
             album_track_count=album_track_count,
+            options=options,
         )
+        final_path = self._final_path_for(task, options)
+        task.final_path = final_path
         self._queue.append(task)
         # §8.1/T06: destino que resolve fora de download_dir (symlink no
         # caminho, por exemplo) NÃO é persistido — nada há para recuperar, e
         # a validação de entrada do worker reprova a tarefa com a mesma
         # causa (o erro aparece na fila; nunca se grava uma linha armadilha).
         try:
-            resolve_within(self._final_path_for(task), settings.download_dir)
+            resolve_within(final_path, options.download_dir)
         except PathEscapeError as e:
             logger.warning("Destino fora de download_dir para %s (%s)", task.id, e)
             return task
@@ -679,8 +749,8 @@ class DownloadManager:
             f"tarefa na fila ({task.id})",
             lambda: self._store.save(
                 task,
-                download_dir=settings.download_dir,
-                final_path=self._final_path_for(task),
+                download_dir=options.download_dir,
+                final_path=final_path,
             ),
         )
         return task
@@ -705,11 +775,10 @@ class DownloadManager:
                 if queued.video_id == video_id:
                     task = queued
                     break
-        if task is None or not task.can_transition_to(DownloadStatus.CANCELLED):
+        if task is None or not task.try_transition(DownloadStatus.CANCELLED):
             return False
 
         task.abort_event.set()
-        task.transition_to(DownloadStatus.CANCELLED)
         task.error = "Cancelado"
         if task in self._queue and task not in self._active_downloads.values():
             self._queue.remove(task)
@@ -749,10 +818,18 @@ class DownloadManager:
 
         if not (title or artist or album):
             return False
-        candidate = DownloadTask(video_id=video_id, title=title, artist=artist, album=album)
-        template = self._get_output_template(candidate)
+        candidate_options = _snapshot_options()
+        candidate = DownloadTask(
+            video_id=video_id,
+            title=title,
+            artist=artist,
+            album=album,
+            options=candidate_options,
+        )
+        template = self._get_output_template(candidate, candidate_options)
         return any(
-            t.status in ACTIVE_STATUSES and self._get_output_template(t) == template
+            t.status in ACTIVE_STATUSES
+            and self._get_output_template(t, self._options_for(t)) == template
             for t in self._queue
         )
 
@@ -876,6 +953,12 @@ class DownloadManager:
         discarded = discard_task_files(temp_dir=temp_dir, final_path=final_path)
 
         new_task = task.make_retry()
+        # A05: a retomada usa a configuração ATUAL (não a do enfileiramento
+        # antigo) e um caminho final novo.
+        retry_options = _snapshot_options()
+        new_task.options = retry_options
+        new_final_path = self._final_path_for(new_task, retry_options)
+        new_task.final_path = new_final_path
         # A entrada antiga sai da fila em memória: sem isso a INTERRUPTED
         # ficaria listada junto com a nova PENDING do mesmo vídeo (T04-R2).
         self._queue.remove(task)
@@ -886,8 +969,8 @@ class DownloadManager:
             f"nova tentativa de {task.id}",
             lambda: self._store.save(
                 new_task,
-                download_dir=settings.download_dir,
-                final_path=self._final_path_for(new_task),
+                download_dir=retry_options.download_dir,
+                final_path=new_final_path,
             ),
         )
         self._persist(f"remoção da linha antiga de {task.id}", lambda: self._store.delete(task.id))
@@ -897,6 +980,45 @@ class DownloadManager:
             new_task.id,
             len(discarded),
         )
+        return new_task
+
+    def retry_failed(self, task_id: str) -> DownloadTask | None:
+        """Cria nova tentativa de uma tarefa FAILED desta sessão (A09).
+
+        Falhas só vivem na fila em memória (a linha persistida some no fim);
+        a nova tarefa usa a configuração ATUAL (snapshot novo), como a
+        retomada de INTERRUPTED. Nenhum arquivo final é apagado; temporários
+        do yt-dlp são reaproveitados/sobrescritos pela nova reserva.
+        """
+        task = next(
+            (
+                item
+                for item in self._queue
+                if item.id == task_id and item.status is DownloadStatus.FAILED
+            ),
+            None,
+        )
+        if task is None:
+            return None
+
+        new_task = task.make_retry()
+        options = _snapshot_options()
+        new_task.options = options
+        new_final_path = self._final_path_for(new_task, options)
+        new_task.final_path = new_final_path
+        # A FAILED antiga sai da fila: a tabela mostra só a nova tentativa.
+        self._queue.remove(task)
+        self._queue.append(new_task)
+        self._persist(
+            f"nova tentativa de {task.id}",
+            lambda: self._store.save(
+                new_task,
+                download_dir=options.download_dir,
+                final_path=new_final_path,
+            ),
+        )
+        self._persist(f"remoção da linha antiga de {task.id}", lambda: self._store.delete(task.id))
+        logger.info("Retentando download %s como %s", task.id, new_task.id)
         return new_task
 
     def discard_interrupted(self, task_id: str) -> list[Path] | None:

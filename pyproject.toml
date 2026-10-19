@@ -21,17 +21,21 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Players",
 ]
 dependencies = [
-    "textual>=0.52.0",
-    "ytmusicapi>=1.8.0",
+    # Pisos alinhados às versões realmente testadas (A12): o código usa
+    # ``ScreenStackError``/``run_worker``/``Select`` do Textual 8.x,
+    # ``requests_session`` do ytmusicapi 1.12 e a API do python-mpv 1.x.
+    "textual>=8.2,<9",
+    "ytmusicapi>=1.12,<2",
     # requests já vinha como transitiva do ytmusicapi; o T10-R2/R3 a importa
     # direto (sessão com timeouts + classificação) — declarada de verdade.
     "requests>=2.32.0",
-    "python-mpv>=0.12.0",
-    "yt-dlp>=2024.1.0",
+    "python-mpv>=1.0,<2",
+    "yt-dlp>=2026.8.19",
     "sqlalchemy>=2.0.0",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "rich>=13.7.0",
+    # A04: round-trip do config.toml preservando comentários/estrutura.
+    "tomlkit>=0.13,<1",
     "platformdirs>=4.0.0",
 ]
 

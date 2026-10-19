@@ -328,6 +328,54 @@ def test_download_task_completes_with_final_path(manager, monkeypatch, tmp_path)
     assert list((tmp_path / ".tmp").iterdir()) == []
 
 
+def test_snapshot_de_opcoes_congela_formato_qualidade_e_diretorio(manager, monkeypatch, tmp_path):
+    """A05: mudar a Config com a tarefa em voo não muda o download.
+
+    O snapshot é tirado no enfileiramento; o worker lê formato, qualidade,
+    diretório e caminho final só dele.
+    """
+    task = manager.queue_download(video_id="abc", title="T", artist="A", album="Alb")
+    snapshot = task.options
+    assert snapshot is not None
+    assert snapshot.audio_format == "mp3"
+    assert task.final_path == tmp_path / "A" / "Alb" / "T - A.mp3"
+
+    # Usuário muda tudo no meio do caminho (aba Config).
+    monkeypatch.setattr(download_mod.settings, "download_format", "flac")
+    monkeypatch.setattr(download_mod.settings, "download_quality", "best")
+    monkeypatch.setattr(download_mod.settings, "download_dir", tmp_path / "outro")
+
+    opts = manager._get_ydl_options(task)
+    extract = next(pp for pp in opts["postprocessors"] if pp["key"] == "FFmpegExtractAudio")
+    assert extract["preferredcodec"] == "mp3"
+    assert extract["preferredquality"] == "320"
+    assert not opts["outtmpl"].startswith(str(tmp_path / "outro"))
+
+    result = manager._download_task(task)
+    assert result.status is DownloadStatus.COMPLETED
+    # Caminho, extensão e registro usam o snapshot, não o settings atual.
+    assert result.final_path == tmp_path / "A" / "Alb" / "T - A.mp3"
+    assert result.file_path == result.final_path
+
+
+def test_retry_cria_novo_snapshot_com_a_config_atual(manager, monkeypatch, tmp_path):
+    """A05: retomar uma tarefa interrompida usa a configuração de agora."""
+    task = manager.queue_download(video_id="abc", title="T", artist="A", album="Alb")
+    antigo = task.options
+    task.status = DownloadStatus.INTERRUPTED  # hidratação: decisão pendente
+
+    monkeypatch.setattr(download_mod.settings, "download_format", "flac")
+    monkeypatch.setattr(download_mod.settings, "download_dir", tmp_path / "novo")
+
+    retomada = manager.retry_interrupted(task.id)
+
+    assert retomada is not None
+    assert retomada.options is not antigo
+    assert retomada.options is not None
+    assert retomada.options.audio_format == "flac"
+    assert retomada.final_path == tmp_path / "novo" / "A" / "Alb" / "T - A.flac"
+
+
 def test_progress_hook_does_not_complete_prematurely(manager):
     """'finished' é só o download; a conversão ainda vai rodar."""
     task = DownloadTask(video_id="abc")

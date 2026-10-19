@@ -35,9 +35,8 @@ class _Transport:
 
 
 def _install_transport(monkeypatch, transport) -> None:
-    """Substitui o cliente do singleton pelo transporte controlado."""
-    monkeypatch.setattr(api_module.ytmusic, "_client", transport)
-    monkeypatch.setattr(api_module.ytmusic, "_initialized", True)
+    """Substitui o cliente do singleton pelo transporte controlado (A14)."""
+    api_module.ytmusic._use_client(transport)
 
 
 @pytest.mark.asyncio

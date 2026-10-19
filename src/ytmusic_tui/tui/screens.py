@@ -28,9 +28,16 @@ from textual.widgets import (
 
 from ytmusic_tui.api import ytmusic
 from ytmusic_tui.api.models import Album, AlbumDetail, SearchResult, Track
-from ytmusic_tui.config import MAX_DOWNLOAD_CONCURRENT, MIN_DOWNLOAD_CONCURRENT, settings
+from ytmusic_tui.config import (
+    AUDIO_QUALITY_VALUES,
+    DOWNLOAD_FORMAT_VALUES,
+    MAX_DOWNLOAD_CONCURRENT,
+    MIN_DOWNLOAD_CONCURRENT,
+    settings,
+)
 from ytmusic_tui.diagnostics import mask_diagnostics
 from ytmusic_tui.download import download_manager
+from ytmusic_tui.errors import ConfigError
 from ytmusic_tui.player import TrackInfo, player
 from ytmusic_tui.tui.dialogs import HelpScreen
 from ytmusic_tui.tui.download_controller import DownloadController
@@ -95,6 +102,18 @@ logger = logging.getLogger(__name__)
 #              ao salvar (toast mascarado em 3 partes, _save_setting).
 
 
+def _select_value(value: object, options: tuple[str, ...], default: str) -> str:
+    """Valor de ``Select`` garantidamente válido (A02).
+
+    A configuração já é validada no carregamento, mas a UI não pode apostar
+    nisso: se um valor fora do enum chegar aqui (objeto mutado em teste,
+    fallback ou código futuro), o widget usa o padrão em vez de levantar
+    ``InvalidSelectValueError`` no mount e deixar o app inutilizável.
+    """
+    text = str(value)
+    return text if text in options else default
+
+
 class MainScreen(
     PlaybackController, DownloadController, LibraryController, PlaylistController, Screen
 ):
@@ -119,6 +138,9 @@ class MainScreen(
         Binding("t", "play_album", "Tocar álbum"),
         Binding("r", "retry_download", "Retomar download"),
         Binding("d", "discard_download", "Descartar download"),
+        Binding("c", "cancel_download", "Cancelar download"),
+        Binding("C", "clear_downloads", "Limpar concluídos"),
+        Binding("i", "show_download_error", "Detalhe do erro"),
         Binding("n", "new_playlist", "Nova playlist"),
         Binding("e", "rename_playlist", "Renomear playlist"),
         Binding("delete", "delete_playlist", "Excluir playlist/faixa"),
@@ -220,7 +242,9 @@ class MainScreen(
                                 ("Alta", "high"),
                                 ("Melhor", "best"),
                             ],
-                            value=settings.mpv_audio_quality,
+                            value=_select_value(
+                                settings.mpv_audio_quality, AUDIO_QUALITY_VALUES, "high"
+                            ),
                             id="setting-audio-quality",
                         )
                     with Collapsible(title="Downloads", collapsed=True):
@@ -229,7 +253,9 @@ class MainScreen(
                         yield Static("Formato:")
                         yield Select(
                             [("MP3", "mp3"), ("Opus", "opus"), ("M4A", "m4a"), ("FLAC", "flac")],
-                            value=settings.download_format,
+                            value=_select_value(
+                                settings.download_format, DOWNLOAD_FORMAT_VALUES, "mp3"
+                            ),
                             id="setting-format",
                         )
                         yield Static("Qualidade (kbps):")
@@ -260,7 +286,7 @@ class MainScreen(
                             id="dependency-info",
                         )
 
-        yield NowPlayingBar(id="now-playing")
+        yield NowPlayingBar(id="now-playing", volume=settings.mpv_volume)
 
     def _account_status_text(self) -> str:
         """Texto de status da conta (o app opera sem login)."""
@@ -472,7 +498,13 @@ class MainScreen(
         qualquer aba — espelho do ``l``, que usa a faixa atual fora da
         Biblioteca (R4).
         """
-        if action in ("retry_download", "discard_download"):
+        if action in (
+            "retry_download",
+            "discard_download",
+            "cancel_download",
+            "clear_downloads",
+            "show_download_error",
+        ):
             try:
                 tabs = self.query_one("#main-tabs", TabbedContent)
             except Exception:
@@ -619,7 +651,9 @@ class MainScreen(
         """
         try:
             settings.update_and_save(**updates)
-        except OSError as exc:
+        except (OSError, ConfigError) as exc:
+            # A04: TOML inválido/gravação atômica falharam; a alteração vale
+            # nesta sessão (memória) e o toast avisa que não foi gravada.
             self._toast(config_save_error(mask_diagnostics(str(exc))))
             return False
         return True

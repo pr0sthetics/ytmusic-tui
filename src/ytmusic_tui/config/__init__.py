@@ -1,20 +1,24 @@
 """Configuração centralizada da aplicação."""
 
-import json
+import contextlib
 import os
+import tempfile
+import tomllib
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+import tomlkit
 from platformdirs import user_cache_dir, user_config_dir, user_data_dir
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
+from tomlkit.exceptions import TOMLKitError
 
-from ytmusic_tui.errors import ConfigError
+from ytmusic_tui.errors import ConfigError, ConfigValidationError
 from ytmusic_tui.permissions import secure_directory, secure_file
 
 # Caminho padrão do arquivo de configuração TOML.
@@ -49,14 +53,80 @@ def _resolve_toml_file(settings_cls: type[BaseSettings]) -> Path:
 MIN_DOWNLOAD_CONCURRENT = 1
 MAX_DOWNLOAD_CONCURRENT = 10
 
+#: Bitrate aceito para mp3/opus (A02). Abaixo disso a conversão perde
+#: qualidade; acima do teto os codificadores recusam ou saturam. ``best``
+#: continua valendo para os formatos que não usam bitrate (m4a/flac).
+MIN_DOWNLOAD_QUALITY = 64
+MAX_DOWNLOAD_QUALITY = 320
 
-def _toml_literal(value: object) -> str:
-    """Serializa um valor simples para TOML (str, bool, int, float)."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return json.dumps(str(value))
+#: Opções válidas da aba Config (A02) — a UI usa estas listas para o fallback
+#: defensivo quando o valor em memória não estiver entre as opções.
+AUDIO_QUALITY_VALUES: tuple[str, ...] = ("low", "medium", "high", "best")
+DOWNLOAD_FORMAT_VALUES: tuple[str, ...] = ("mp3", "opus", "m4a", "flac")
+
+
+def _fsync_directory(directory: Path) -> None:
+    """Sincroniza a entrada de diretório após o ``os.replace`` (best-effort).
+
+    Sem isso, o rename pode estar no cache do FS quando faltar energia: o
+    arquivo novo existe, mas o nome pode voltar ao antigo. Em sistemas sem
+    ``fsync`` de diretório (ex.: Windows), é um no-op.
+    """
+    try:
+        descriptor = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Grava ``text`` em ``path`` de forma atômica e privada (A04).
+
+    Sequência: temporário no MESMO diretório (rename atômico) → ``fsync`` →
+    modo 0600 → ``os.replace`` → ``fsync`` do diretório. Falha em qualquer
+    passo remove o temporário e NÃO toca no arquivo antigo: disco cheio ou
+    crash no meio não truncam a configuração.
+    """
+    secure_directory(path.parent, label="diretório de configuração")
+    descriptor, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    temporary = Path(raw_tmp)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Nasce 0600: o umask não decide a permissão de um arquivo de config.
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            temporary.unlink()
+        raise
+
+
+def format_validation_error(error: ValidationError, path: Path) -> str:
+    """Mensagem curta e acionável para configuração inválida (A02).
+
+    Lista arquivo, campo, valor recebido e o esperado — o usuário sabe
+    exatamente o que corrigir, sem traceback do Pydantic. O caminho do TOML
+    aparece porque é o lugar mais provável da edição; variáveis
+    ``YTMUSIC_*`` também são aceitas (e citadas no cabeçalho).
+    """
+    lines = [f"configuração inválida (TOML em {path} ou variáveis YTMUSIC_*):"]
+    for item in error.errors(include_url=False):
+        location = ".".join(str(part) for part in item.get("loc", ())) or "(raiz)"
+        value = repr(item.get("input"))
+        if len(value) > 80:  # valor gigante não polui o terminal
+            value = f"{value[:77]}..."
+        lines.append(f"  - {location}={value}: {item.get('msg', 'valor inválido')}")
+    lines.append("Corrija o arquivo (ou remova o campo para usar o padrão) e abra o app de novo.")
+    return "\n".join(lines)
 
 
 class Settings(BaseSettings):
@@ -110,6 +180,42 @@ class Settings(BaseSettings):
             return Path(os.path.expanduser(str(value)))
         return value
 
+    @field_validator("download_quality", mode="before")
+    @classmethod
+    def _validate_download_quality(cls, value: object) -> str:
+        """Aceita ``best`` ou um inteiro na faixa suportada (A02).
+
+        Um typo (``"abc"``, ``"999"``) não pode derrubar a TUI no import:
+        vira erro de validação com o esperado explícito. O valor é
+        normalizado para string porque é assim que o yt-dlp o consome.
+        """
+        text = str(value).strip()
+        if text.lower() == "best":
+            return "best"
+        if text.isdigit():
+            bitrate = int(text)
+            if MIN_DOWNLOAD_QUALITY <= bitrate <= MAX_DOWNLOAD_QUALITY:
+                return str(bitrate)
+        raise ValueError(
+            f"use 'best' ou um inteiro entre {MIN_DOWNLOAD_QUALITY} e {MAX_DOWNLOAD_QUALITY} kbps"
+        )
+
+    @field_validator("library_db_name")
+    @classmethod
+    def _validate_library_db_name(cls, value: str) -> str:
+        """O banco mora em ``data_dir``: só um nome de arquivo simples (A02).
+
+        Caminho absoluto, separador ou ``..`` permitiria escrever fora do
+        diretório de dados — a configuração é recusada, nunca "consertada".
+        """
+        text = value.strip()
+        forbidden = not text or text in {".", ".."} or "/" in text or "\\" in text
+        if forbidden or Path(text).is_absolute() or "\x00" in text:
+            raise ValueError(
+                "use um nome de arquivo simples (sem diretórios, sem caminho absoluto)"
+            )
+        return text
+
     # Diretórios base
     config_dir: Path = Field(
         default_factory=lambda: Path(user_config_dir("ytmusic-tui")),
@@ -126,7 +232,7 @@ class Settings(BaseSettings):
 
     # Player (mpv)
     mpv_volume: int = Field(default=50, ge=0, le=100, description="Volume inicial (0-100)")
-    mpv_audio_quality: str = Field(
+    mpv_audio_quality: Literal["low", "medium", "high", "best"] = Field(
         default="high",
         description="Qualidade de áudio: low, medium, high, best",
     )
@@ -136,13 +242,14 @@ class Settings(BaseSettings):
         default_factory=lambda: Path.home() / "Music" / "YouTube Music",
         description="Diretório padrão para downloads",
     )
-    download_format: str = Field(
+    download_format: Literal["mp3", "opus", "m4a", "flac"] = Field(
         default="mp3",
         description="Formato de download: mp3, opus, m4a, flac",
     )
     download_quality: str = Field(
         default="320",
-        description="Qualidade do áudio em kbps (para mp3) ou 'best'",
+        description=f"Qualidade do áudio em kbps ({MIN_DOWNLOAD_QUALITY}-"
+        f"{MAX_DOWNLOAD_QUALITY}) ou 'best'",
     )
     download_concurrent: int = Field(
         default=3,
@@ -204,27 +311,87 @@ class Settings(BaseSettings):
         self._save_toml(updates)
 
     def _save_toml(self, updates: dict[str, Any]) -> None:
-        """Reescreve o TOML aplicando as atualizações."""
-        import tomllib
+        """Reescreve o TOML aplicando as atualizações (A04).
 
+        Usa ``tomlkit`` para preservar comentários, ordem e tabelas
+        aninhadas do arquivo do usuário. A gravação em si é atômica
+        (:func:`_atomic_write`): um erro no meio não trunca a configuração
+        antiga. TOML ilegível é preservado e vira ``ConfigError`` — nunca
+        "zerado" em silêncio.
+        """
         # O caminho NUNCA sai do diretório de configuração esperado
         # (T16/Q16): classe fixou um ``toml_file`` (testes) >
         # ``YTMUSIC_CONFIG_DIR`` > caminho padrão do usuário.
         path = _resolve_toml_file(type(self))
-        data: dict[str, Any] = {}
         if path.exists():
             try:
-                data = tomllib.loads(path.read_text(encoding="utf-8"))
-            except tomllib.TOMLDecodeError:
-                data = {}
+                original = path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise ConfigError(f"não foi possível ler a configuração {path}: {exc}") from exc
+            try:
+                document = tomlkit.parse(original)
+            except TOMLKitError as exc:
+                raise ConfigError(
+                    f"o arquivo de configuração {path} não é um TOML válido ({exc}); "
+                    "o original foi preservado — corrija-o e tente de novo"
+                ) from exc
+        else:
+            document = tomlkit.document()
+
         for key, value in updates.items():
-            data[key] = str(value) if isinstance(value, Path) else value
-        lines = [f"{key} = {_toml_literal(value)}" for key, value in data.items()]
-        secure_directory(path.parent, label="diretório de configuração")
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            document[key] = str(value) if isinstance(value, Path) else value
+
+        try:
+            text = tomlkit.dumps(document)
+        except (TypeError, ValueError) as exc:
+            raise ConfigError(f"não foi possível serializar a configuração: {exc}") from exc
+        _atomic_write(path, text)
         # §8.3/T06: o TOML é dado do usuário — 0600 (aperta existente).
         secure_file(path, label="arquivo de configuração")
 
 
+def _load_settings() -> Settings:
+    """Carrega a configuração global sem deixar o import levantar (A02).
+
+    Campo inválido no TOML/ambiente não pode impedir o app de abrir com uma
+    mensagem útil: o erro tipado fica em :data:`_CONFIGURATION_ERROR` e
+    :func:`configuration_error` o entrega ao entry point e ao ``doctor``.
+    O objeto ``settings`` cai para os padrões (``model_construct``, sem
+    criar diretórios) só para que os imports continuem funcionando; nenhum
+    caminho de execução usa esses padrões sem antes checar o erro — o app e
+    o ``doctor`` recusam/reportam explicitamente.
+    """
+    global _CONFIGURATION_ERROR
+    try:
+        return Settings()
+    except ValidationError as exc:
+        _CONFIGURATION_ERROR = ConfigValidationError(
+            format_validation_error(exc, _resolve_toml_file(Settings))
+        )
+        return Settings.model_construct()
+    except tomllib.TOMLDecodeError as exc:
+        path = _resolve_toml_file(Settings)
+        _CONFIGURATION_ERROR = ConfigValidationError(
+            f"configuração inválida: o TOML em {path} não pôde ser lido ({exc}).\n"
+            "Corrija a sintaxe do arquivo e abra o app de novo."
+        )
+        return Settings.model_construct()
+    except OSError as exc:
+        path = _resolve_toml_file(Settings)
+        _CONFIGURATION_ERROR = ConfigValidationError(
+            f"não foi possível ler a configuração {path}: {exc}.\n"
+            "Verifique permissões e o caminho do arquivo."
+        )
+        return Settings.model_construct()
+
+
+_CONFIGURATION_ERROR: ConfigValidationError | None = None
+
+
+def configuration_error() -> ConfigValidationError | None:
+    """Erro de configuração da instância global (``None`` = configuração ok)."""
+    return _CONFIGURATION_ERROR
+
+
 # Instância global de configurações
-settings = Settings()
+settings = _load_settings()

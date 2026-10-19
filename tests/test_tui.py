@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from textual.widgets import (
     Button,
     Checkbox,
@@ -17,6 +18,7 @@ from textual.widgets import (
     DataTable,
     Input,
     Label,
+    Select,
     Static,
     TabbedContent,
     Tabs,
@@ -38,6 +40,7 @@ from ytmusic_tui.library import db_manager, library
 from ytmusic_tui.library.errors import (
     AudioFileMissingError,
     DatabaseCorruptError,
+    DatabaseInaccessibleError,
     SchemaIncompatibleError,
 )
 from ytmusic_tui.library.migrations import SCHEMA_VERSION
@@ -50,6 +53,7 @@ from ytmusic_tui.tui import download_controller, library_controller
 from ytmusic_tui.tui.app import MainScreen, PlayerEventMessage, YTMusicTUI
 from ytmusic_tui.tui.dialogs import (
     ConfirmScreen,
+    ErrorDetailScreen,
     HelpScreen,
     NameInputScreen,
     PlaylistPickerScreen,
@@ -558,8 +562,10 @@ async def test_album_tab_hidden_until_first_album(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_download_album_queues_tracks_and_skips_downloaded(monkeypatch):
+async def test_download_album_queues_tracks_and_skips_downloaded(monkeypatch, tmp_path):
     """Botão e tecla "a" baixam o álbum inteiro; o que já foi baixado é pulado."""
+    baixada = tmp_path / "baixada.mp3"
+    baixada.write_bytes(b"audio")
     app = YTMusicTUI()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
@@ -601,6 +607,8 @@ async def test_download_album_queues_tracks_and_skips_downloaded(monkeypatch):
         # Tecla "a" (com foco na lista, fora de um Input), pulando a t1
         class _Downloaded:
             is_downloaded = True
+            is_missing = False
+            local_path = str(baixada)
 
         monkeypatch.setattr(
             library,
@@ -623,6 +631,45 @@ async def test_download_album_queues_tracks_and_skips_downloaded(monkeypatch):
         await pilot.pause()
         assert queued == []
         assert any("Nenhum álbum aberto" in t for t in toasts)
+
+
+@pytest.mark.asyncio
+async def test_download_album_repara_faixa_cujo_arquivo_sumiu(monkeypatch, tmp_path):
+    """A08: ``is_downloaded=True`` com arquivo ausente volta a ser enfileirada.
+
+    Antes, "Baixar álbum" pulava a faixa como "já baixada" e o usuário não
+    tinha como reparar a ausência pelo fluxo natural.
+    """
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        sumida = SimpleNamespace(
+            is_downloaded=True,
+            is_missing=True,
+            local_path=str(tmp_path / "nunca-existiu.mp3"),
+        )
+        queued: list[str] = []
+        monkeypatch.setattr(library, "get_track_by_source_id", lambda video_id: sumida)
+        monkeypatch.setattr(library, "ensure_track", lambda **kwargs: 1)
+        monkeypatch.setattr(
+            download_manager,
+            "queue_download",
+            lambda **kwargs: queued.append(kwargs["video_id"]) or object(),
+        )
+
+        async def _noop(task):  # noqa: ANN001 - worker fake
+            return None
+
+        monkeypatch.setattr(screen, "_run_download", _noop)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+
+        screen.display_album(_album_details())
+        screen.action_download_album()
+        await pilot.pause()
+
+        assert queued == ["t1", "t2"]  # nenhuma foi pulada como baixada
 
 
 # ===== T04: recuperação de downloads interrompidos na TUI (r/d) =====
@@ -759,6 +806,235 @@ async def test_downloads_table_deduplicates_running_task(monkeypatch):
 
         table = screen.query_one("#downloads-table", DataTable)
         assert table.row_count == 1
+
+
+@pytest.mark.asyncio
+async def test_downloads_table_preserves_selection_and_columns(monkeypatch):
+    """A01: o refresh periódico não perde a seleção nem recria as colunas.
+
+    Regressão reproduzida antes da correção: cursor ``1`` antes do refresh e
+    ``0`` depois, porque ``clear(columns=True)`` reposicionava o cursor.
+    """
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        first = DownloadTask(video_id="a", title="Primeira", id="task-1")
+        second = DownloadTask(video_id="b", title="Segunda", id="task-2")
+        monkeypatch.setattr(download_manager, "get_queue", lambda: [first, second])
+        monkeypatch.setattr(download_manager, "get_active_downloads", lambda: [])
+
+        screen.update_downloads_table()
+        await pilot.pause()
+        table = screen.query_one("#downloads-table", DataTable)
+        columns_before = list(table.columns)
+
+        table.move_cursor(row=1)
+        assert table.cursor_row == 1
+
+        # Duas atualizações seguidas (como o timer de 0,5 s): a segunda linha
+        # continua selecionada e as colunas são as MESMAS instâncias.
+        screen.update_downloads_table()
+        screen.update_downloads_table()
+        await pilot.pause()
+
+        assert table.cursor_row == 1
+        assert list(table.columns) == columns_before
+        assert table.row_count == 2
+        assert screen._selected_download_task() is second
+
+        # Mesma lista: célula atualizada no lugar (progresso), seleção intacta.
+        second.progress = 42.5
+        second.status = DownloadStatus.RUNNING
+        screen.update_downloads_table()
+        await pilot.pause()
+        assert table.cursor_row == 1
+        assert "42.5%" in str(table.get_row_at(1))
+
+
+@pytest.mark.asyncio
+async def test_retry_uses_selected_row_after_periodic_refresh(monkeypatch):
+    """A01: ``r`` na segunda linha continua mirando a segunda após o timer."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        first = DownloadTask(
+            video_id="a", title="Primeira", id="task-1", status=DownloadStatus.INTERRUPTED
+        )
+        second = DownloadTask(
+            video_id="b", title="Segunda", id="task-2", status=DownloadStatus.INTERRUPTED
+        )
+        monkeypatch.setattr(download_manager, "get_queue", lambda: [first, second])
+        monkeypatch.setattr(download_manager, "get_active_downloads", lambda: [])
+
+        screen.update_downloads_table()
+        await pilot.pause()
+        table = screen.query_one("#downloads-table", DataTable)
+        table.move_cursor(row=1)
+
+        # Simula o refresh do timer antes da tecla.
+        app._refresh_downloads_ui()
+        await pilot.pause()
+        assert table.cursor_row == 1
+
+        retried: list[str] = []
+        monkeypatch.setattr(
+            download_manager,
+            "retry_interrupted",
+            lambda task_id: retried.append(task_id) or second.make_retry(),
+        )
+
+        async def _run(task):  # noqa: ANN001 - worker fake
+            return None
+
+        monkeypatch.setattr(screen, "_run_download", _run)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+
+        screen.action_retry_download()
+        await pilot.pause()
+
+        assert retried == ["task-2"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_clear_retry_failed_e_detalhe_do_erro(monkeypatch):
+    """A09: c cancela, C limpa, r retenta FAILED e i mostra o erro completo."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+
+        running = DownloadTask(video_id="run", title="Em curso", id="t-run")
+        running.transition_to(DownloadStatus.RUNNING)
+        failed = DownloadTask(video_id="fail", title="Quebrada", id="t-fail")
+        failed.transition_to(DownloadStatus.RUNNING)
+        failed.transition_to(DownloadStatus.FAILED)
+        failed.error = "falha detalhada: sem rede"
+        done = DownloadTask(video_id="done", title="Feita", id="t-done")
+        for status in (DownloadStatus.RUNNING, DownloadStatus.VALIDATING, DownloadStatus.COMPLETED):
+            done.transition_to(status)
+
+        tasks = [running, failed, done]
+        monkeypatch.setattr(download_manager, "get_queue", lambda: list(tasks))
+        monkeypatch.setattr(download_manager, "get_active_downloads", lambda: [])
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+
+        # --- c: cancelar o selecionado ---
+        screen.update_downloads_table()
+        table = screen.query_one("#downloads-table", DataTable)
+        table.move_cursor(row=0)
+        cancelados: list[str] = []
+        monkeypatch.setattr(
+            download_manager,
+            "cancel_download",
+            lambda video_id: cancelados.append(video_id) or True,
+        )
+        screen.action_cancel_download()
+        assert cancelados == ["run"]
+        assert any("cancelado" in t.lower() for t in toasts)
+        assert table.row_count == 3  # cancelar não some da tabela
+
+        # --- r: FAILED vira nova tentativa ---
+        retomados: list[str] = []
+        retry = failed.make_retry()
+
+        async def _noop(task):  # noqa: ANN001 - worker fake
+            return None
+
+        monkeypatch.setattr(screen, "_run_download", _noop)
+        monkeypatch.setattr(
+            download_manager,
+            "retry_failed",
+            lambda task_id: retomados.append(task_id) or retry,
+        )
+        table.move_cursor(row=1)
+        screen.action_retry_download()
+        await pilot.pause()
+        assert retomados == ["t-fail"]
+        assert any("Retomando" in t for t in toasts)
+
+        # --- i: detalhe completo do erro ---
+        table.move_cursor(row=1)
+        screen.action_show_download_error()
+        await pilot.pause()
+        assert isinstance(app.screen, ErrorDetailScreen)
+        body = str(app.screen.query_one("#detail-body", Static).render())
+        assert "falha detalhada: sem rede" in body
+        await pilot.press("escape")
+        await pilot.pause()
+        assert isinstance(app.screen, MainScreen)
+
+        # --- C: limpar concluídas/falhas ---
+        def _clear() -> None:
+            tasks[:] = [task for task in tasks if not task.is_terminal]
+
+        monkeypatch.setattr(download_manager, "clear_completed", _clear)
+        screen.action_clear_downloads()
+        assert any("2 tarefas concluídas removidas" in t for t in toasts)
+        screen.update_downloads_table()
+        assert table.row_count == 1  # só a RUNNING ficou
+
+
+@pytest.mark.asyncio
+async def test_escritas_de_biblioteca_com_erro_nao_derrubam_a_tui(monkeypatch):
+    """A06: ``LibraryError``/``IntegrityError`` viram toast em 3 partes.
+
+    Antes, ``create_playlist``/``add_track_to_playlist`` chamados sem
+    ``try/except`` transformavam erro de banco em traceback no handler.
+    """
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+
+        def _falha_library(*args, **kwargs):  # noqa: ANN001
+            raise DatabaseInaccessibleError("banco travado")
+
+        def _falha_integrity(*args, **kwargs):  # noqa: ANN001
+            raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint"))
+
+        monkeypatch.setattr(library, "create_playlist", _falha_library)
+        screen._on_playlist_name_for_create("Nova")
+        assert app.is_running
+        assert any("Não foi possível salvar na biblioteca" in t for t in toasts)
+        assert any("🛡️" in t and "▶" in t for t in toasts)
+
+        monkeypatch.setattr(library, "add_track_to_playlist", _falha_integrity)
+        screen._add_track_to_playlist(
+            SimpleNamespace(id=2, title="Faixa"),
+            SimpleNamespace(id=1, name="Playlist", tracks=[]),
+        )
+        assert app.is_running
+        assert any("UNIQUE constraint" in t for t in toasts)
+
+
+@pytest.mark.asyncio
+async def test_run_download_com_excecao_inesperada_vira_failed(monkeypatch):
+    """A06: exceção inesperada do worker não escapa do handler da TUI."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+
+        async def _explode(task):  # noqa: ANN001
+            raise RuntimeError("boom interno")
+
+        monkeypatch.setattr(download_manager, "download", _explode)
+        task = DownloadTask(video_id="abc", title="Faixa")
+
+        await screen._run_download(task)
+
+        assert task.status is DownloadStatus.FAILED
+        assert "boom interno" in task.error
+        assert any("Falha no download" in t for t in toasts)
 
 
 @pytest.mark.asyncio
@@ -1207,6 +1483,35 @@ async def test_library_shows_specific_message_for_typed_error(monkeypatch, caplo
 
 
 @pytest.mark.asyncio
+async def test_library_500_avisa_que_ha_mais(monkeypatch):
+    """A18: lista truncada em 500 mostra o total real — nunca em silêncio."""
+
+    class _Album:
+        id = 7
+        title = "Álbum Grande"
+        release_year = None
+        artists: list = []
+
+    entry = LibraryAlbum(album=_Album(), track_count=1, missing_count=0, downloaded_count=1)
+    monkeypatch.setattr(library, "list_library_albums", lambda limit=500: [entry] * 500)
+    monkeypatch.setattr(library, "count_library_albums", lambda: 501)
+    monkeypatch.setattr(library, "list_standalone_tracks", lambda limit=500: [])
+    monkeypatch.setattr(library, "count_standalone_tracks", lambda: 0)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        legend = screen.query_one("#library-legend", Static)
+        assert legend.display is True
+        assert "Mostrando 500 de 501 álbuns" in str(legend.render())
+
+
+@pytest.mark.asyncio
 async def test_library_nivel_1_albuns_e_avulsas(monkeypatch):
     """T17.1/R6: nível 1 = álbuns (título·artista·N faixas) + avulsas."""
     for vid, title, album in (
@@ -1236,10 +1541,14 @@ async def test_library_nivel_1_albuns_e_avulsas(monkeypatch):
         assert [track.title for track in view.singles] == ["Avulsa única"]
 
         labels = " | ".join(str(child.query_one(Label).render()) for child in view.children)
-        assert "💿 Alfa — Artista  (1 faixa)" in labels
-        assert "💿 Zeta — Artista  (2 faixas)" in labels
+        # A07: nenhuma faixa tem arquivo registrado — o rótulo mostra a
+        # contagem honesta (0 baixadas) e a marca ☁, nunca "baixada".
+        assert "💿 Alfa — Artista  (1 faixa)  ✓ 0/1 baixadas" in labels
+        assert "💿 Zeta — Artista  (2 faixas)  ✓ 0/2 baixadas" in labels
         assert "— Faixas avulsas —" in labels
-        assert "Avulsa única" in labels
+        assert "☁ Avulsa única" in labels
+        legend = screen.query_one("#library-legend", Static)
+        assert "ainda não baixada" in str(legend.render())
 
         # Enter numa avulsa toca (fila = avulsas visíveis, posição 3).
         view.focus()
@@ -1249,6 +1558,68 @@ async def test_library_nivel_1_albuns_e_avulsas(monkeypatch):
         await pilot.pause()
         assert [info.title for info in played] == ["Avulsa única"]
         assert [info.title for info in screen._play_queue] == ["Avulsa única"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_da_biblioteca_preserva_selecao():
+    """A10: refresh (download/reconciliação) não volta a seleção ao topo."""
+    for video_id, title, album in (
+        ("S1", "Um", "Alfa"),
+        ("S2", "Dois", "Beta"),
+        ("S3", "Três", "Gama"),
+    ):
+        assert library.ensure_track(video_id, title, "Artista", album) is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-library"
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#library-list", LibraryListView)
+        view.focus()
+        view.index = 2
+        selecionado = view.get_selected_album()
+        assert selecionado is not None
+
+        await screen.refresh_library().wait()
+        await pilot.pause()
+
+        assert view.index == 2
+        atual = view.get_selected_album()
+        assert atual is not None
+        assert atual.album.id == selecionado.album.id
+
+
+@pytest.mark.asyncio
+async def test_refresh_de_playlists_preserva_selecao():
+    """A10: renomear/adicionar não perde a playlist selecionada."""
+    for name in ("Alfa", "Beta", "Gama"):
+        library.create_playlist(name)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-playlists"
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        view = screen.query_one("#playlists-list", PlaylistListView)
+        view.focus()
+        view.index = 2
+        selecionada = view.get_selected_playlist()
+        assert selecionada is not None
+
+        await screen.refresh_playlists().wait()
+        await pilot.pause()
+
+        assert view.index == 2
+        atual = view.get_selected_playlist()
+        assert atual is not None
+        assert atual.id == selecionada.id
 
 
 @pytest.mark.asyncio
@@ -1325,7 +1696,7 @@ async def test_library_modo_album_expande_toca_e_volta(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_library_ausente_visivel_na_lista_no_album_e_legenda():
+async def test_library_ausente_visivel_na_lista_no_album_e_legenda(tmp_path):
     """T17.1/R7: ausente marcada nos dois níveis, legenda honesta e sem crash."""
     ids = {
         vid: library.ensure_track(vid, title, "Artista", "Álbum Ausente")
@@ -1333,9 +1704,13 @@ async def test_library_ausente_visivel_na_lista_no_album_e_legenda():
     }
     ids["M3"] = library.ensure_track("M3", "Avulsa Sumida")
     with library.db.session() as session:
-        # Marcadas como a reconciliação faria (§5.3): arquivo não encontrado.
-        session.get(DbTrack, ids["M1"]).is_missing = True
-        session.get(DbTrack, ids["M3"]).is_missing = True
+        # Marcadas como a reconciliação faria (§5.3): faixa BAIXADA cujo
+        # arquivo não foi encontrado no disco.
+        for key in ("M1", "M3"):
+            row = session.get(DbTrack, ids[key])
+            row.is_downloaded = True
+            row.local_path = str(tmp_path / f"{key}.mp3")
+            row.is_missing = True
 
     app = YTMusicTUI()
     async with app.run_test(size=(120, 40)) as pilot:
@@ -3370,6 +3745,109 @@ async def test_estados_da_barra_do_player(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_auto_next_e_barra_funcionam_com_modal_aberto(monkeypatch):
+    """A03: Help/Confirm no topo não engolem eventos do player.
+
+    Regressão reproduzida antes da correção: com ``HelpScreen`` ativa,
+    ``track_ended`` gerava 0 chamadas de auto-next e a barra não atualizava.
+    """
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        calls: list[int] = []
+        monkeypatch.setattr(screen, "_maybe_auto_next", lambda: calls.append(1))
+        bar = screen.query_one("#now-playing", NowPlayingBar)
+        info = bar.query_one("#np-info", Static)
+
+        for modal in (HelpScreen([*app.BINDINGS, *MainScreen.BINDINGS]), ConfirmScreen("teste")):
+            app.push_screen(modal)
+            await pilot.pause()
+            assert isinstance(app.screen, type(modal))
+
+            app._handle_player_event(PlayerEvent(event="track_ended", data={}))
+            app._handle_player_event(
+                PlayerEvent(
+                    event="play",
+                    data={"track": TrackInfo(video_id="v1", title="Nova", artist="Artista")},
+                )
+            )
+            await pilot.pause()
+
+            app.pop_screen()
+            await pilot.pause()
+
+        # Uma chamada por modal aberto, e a barra foi atualizada por baixo.
+        assert len(calls) == 2
+        assert "Nova" in str(info.render())
+        assert isinstance(app.screen, MainScreen)
+        assert app._main_screen is screen
+
+
+@pytest.mark.asyncio
+async def test_modais_centralizados_e_operaveis_por_mouse():
+    """A17: Confirm/Name/Picker centralizam em 80×24 e aceitam clique."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+
+        confirmados: list[bool] = []
+        app.push_screen(ConfirmScreen("Confirmar teste"), confirmados.append)
+        await pilot.pause()
+        confirm_box = app.screen.query_one("#confirm-box")
+        assert confirm_box.region.width > 0
+        assert confirm_box.region.x > 0
+        await pilot.click("#confirm-yes")
+        await pilot.pause()
+        assert confirmados == [True]
+
+        nomes: list[str | None] = []
+        app.push_screen(NameInputScreen("Nome da playlist"), nomes.append)
+        await pilot.pause()
+        name_box = app.screen.query_one("#name-box")
+        assert name_box.region.x > 0
+        app.screen.query_one("#name-input", Input).value = "Minha lista"
+        await pilot.click("#name-submit")
+        await pilot.pause()
+        assert nomes == ["Minha lista"]
+
+        escolhas: list[object] = []
+        app.push_screen(PlaylistPickerScreen([], "Escolher"), escolhas.append)
+        await pilot.pause()
+        picker_box = app.screen.query_one("#picker-box")
+        assert picker_box.region.x > 0
+        await pilot.click("#picker-cancel")
+        await pilot.pause()
+        assert escolhas == [None]
+
+
+@pytest.mark.asyncio
+async def test_barra_sem_faixa_e_volume_inicial_da_config(monkeypatch):
+    """A16: sem faixa não mostra " — " e o volume inicial vem da config."""
+    monkeypatch.setattr(settings, "mpv_volume", 30)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        bar = app.screen.query_one("#now-playing", NowPlayingBar)
+        info = bar.query_one("#np-info", Static)
+        volume = bar.query_one("#np-volume", Static)
+
+        assert "30%" in str(volume.render())
+        assert " — " not in str(info.render())
+
+        app._handle_player_event(
+            PlayerEvent(event="play", data={"track": TrackInfo(video_id="v1", title="Título")})
+        )
+        assert "Título" in str(info.render())
+        assert " — " not in str(info.render())
+
+        app._handle_player_event(PlayerEvent(event="stop"))
+        assert "Nada tocando" in str(info.render())
+        assert " — " not in str(info.render())
+
+
+@pytest.mark.asyncio
 async def test_barra_podada_no_teardown_nao_quebra(monkeypatch):
     """Q20/T17.1: barra presente com filhos podados não estoura ``NoMatches``.
 
@@ -3422,6 +3900,26 @@ async def test_player_event_message_descartado_no_fechamento(monkeypatch):
         app.on_player_event_message(PlayerEventMessage(PlayerEvent(event="resume")))
 
         assert entregues == []
+
+
+@pytest.mark.asyncio
+async def test_mount_com_valor_fora_do_enum_usa_fallback(monkeypatch):
+    """A02: valor inválido em memória não derruba o ``Select`` no mount.
+
+    A configuração já é validada no carregamento; este teste cobre a defesa
+    em profundidade da aba Config (ex.: objeto mutado por código futuro):
+    o widget cai no padrão em vez de levantar ``InvalidSelectValueError``.
+    """
+    monkeypatch.setattr(settings, "mpv_audio_quality", "ultra")
+    monkeypatch.setattr(settings, "download_format", "ogg")
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        quality = app.screen.query_one("#setting-audio-quality", Select)
+        fmt = app.screen.query_one("#setting-format", Select)
+        assert quality.value == "high"
+        assert fmt.value == "mp3"
 
 
 @pytest.mark.asyncio

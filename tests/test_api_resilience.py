@@ -257,8 +257,10 @@ def test_search_catalog_abortado_para_de_tentar(monkeypatch):
         api.search_catalog("q", should_abort=lambda: True)
 
     assert transport.song_calls == 1
-    assert transport.album_calls == 1
-    assert transport.videos_calls == 1
+    # A14: as outras chamadas não são aguardadas; podem ter sido canceladas
+    # antes de começar. O contrato é "nenhuma retentativa delas".
+    assert transport.album_calls <= 1
+    assert transport.videos_calls <= 1
 
 
 def test_search_catalog_sem_abort_esgota_o_teto(monkeypatch):
@@ -269,7 +271,9 @@ def test_search_catalog_sem_abort_esgota_o_teto(monkeypatch):
         api.search_catalog("q")
 
     assert transport.song_calls == 3  # teto da política
-    assert transport.videos_calls == 1
+    # A14: a falha não bloqueia esperando as outras chamadas; no máximo uma
+    # tentativa de vídeos (nunca a retentativa da política).
+    assert transport.videos_calls <= 1
 
 
 def test_get_album_re_tenta_transitorio(monkeypatch):

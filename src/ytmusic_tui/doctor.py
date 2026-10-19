@@ -33,7 +33,7 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-from ytmusic_tui.config import settings
+from ytmusic_tui.config import configuration_error, settings
 from ytmusic_tui.diagnostics import mask_diagnostics, mask_secrets
 from ytmusic_tui.download.pipeline import QUARANTINE_DIR_NAME
 from ytmusic_tui.library.migrations import BACKUP_DIR_NAME, SCHEMA_VERSION
@@ -197,13 +197,22 @@ def _collect() -> list[_Line]:
         )
     lines.append(_Line(""))
 
-    lines.append(_check_directory("config_dir", settings.config_dir))
-    lines.append(_check_directory("data_dir", settings.data_dir))
-    lines.append(_check_directory("cache_dir", settings.cache_dir))
-    lines.append(_check_directory("download_dir", settings.download_dir))
+    # A02: configuração inválida tem linha própria e motivo completo. As
+    # verificações de diretórios/banco dependem de valores confiáveis do
+    # TOML — pulá-las é mais honesto que relatar caminhos de fallback.
+    config_error = configuration_error()
+    if config_error is not None:
+        lines.append(_Line("configuração: INVÁLIDA", critical=True))
+        lines.extend(_Line(f"  {part}") for part in str(config_error).splitlines())
+    else:
+        lines.append(_check_directory("config_dir", settings.config_dir))
+        lines.append(_check_directory("data_dir", settings.data_dir))
+        lines.append(_check_directory("cache_dir", settings.cache_dir))
+        lines.append(_check_directory("download_dir", settings.download_dir))
+        lines.extend(_check_database(settings.library_db_path))
+
     log_path = log_file_path()
     lines.append(_check_directory("log (diretório)", log_path.parent))
-    lines.extend(_check_database(settings.library_db_path))
     lines.append(_Line(""))
 
     lines.extend(_check_dependencies())
@@ -212,8 +221,9 @@ def _collect() -> list[_Line]:
 
     quarantine = settings.download_dir / QUARANTINE_DIR_NAME
     backups = settings.library_db_path.parent / BACKUP_DIR_NAME
-    lines.append(_Line(f"quarentena: {quarantine} — {_folder_summary(quarantine)}"))
-    lines.append(_Line(f"backups: {backups} — {_folder_summary(backups)}"))
+    if config_error is None:
+        lines.append(_Line(f"quarentena: {quarantine} — {_folder_summary(quarantine)}"))
+        lines.append(_Line(f"backups: {backups} — {_folder_summary(backups)}"))
     if log_path.exists():
         lines.append(_Line(f"log: {log_path} — {log_path.stat().st_size} byte(s)"))
     else:

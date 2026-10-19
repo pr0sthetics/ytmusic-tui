@@ -25,6 +25,7 @@ vive em ``download._extraction_error`` (T11-R4).
 __all__ = [
     "APIError",
     "ConfigError",
+    "ConfigValidationError",
     "ExtractionError",
     "InvalidResponseError",
     "NetworkError",
@@ -36,6 +37,15 @@ __all__ = [
 
 class ConfigError(Exception):
     """Falha de configuração/ambiente (diretório, permissão, layout)."""
+
+
+class ConfigValidationError(ConfigError):
+    """Configuração inválida (TOML ou ``YTMUSIC_*``) — A02.
+
+    A mensagem já vem formatada para o usuário final (arquivo, campo, valor
+    e o que era esperado). O entry point a imprime e sai com código 1; o
+    ``doctor`` a reporta numa linha própria. Nunca vira traceback.
+    """
 
 
 class APIError(Exception):

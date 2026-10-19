@@ -32,8 +32,7 @@ class _CountingTransport:
 
 
 def _install_transport(monkeypatch, transport) -> None:
-    monkeypatch.setattr(api_module.ytmusic, "_client", transport)
-    monkeypatch.setattr(api_module.ytmusic, "_initialized", True)
+    api_module.ytmusic._use_client(transport)
 
 
 @pytest.mark.asyncio

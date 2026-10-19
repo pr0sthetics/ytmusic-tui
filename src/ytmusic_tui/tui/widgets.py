@@ -1,6 +1,6 @@
 """Widgets personalizados usados pelas telas da TUI."""
 
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from textual import events
 from textual.app import ComposeResult
@@ -15,6 +15,7 @@ from ytmusic_tui.library.service import LibraryAlbum
 from ytmusic_tui.player import PlayerState, TrackInfo
 from ytmusic_tui.tui.messages import (
     MISSING_MARK,
+    NOT_DOWNLOADED_MARK,
     PLAYER_ERROR_TEXT,
     PLAYER_LOADING_TEXT,
     SINGLES_SECTION_TEXT,
@@ -26,15 +27,19 @@ _WidgetT = TypeVar("_WidgetT", bound=Widget)
 
 
 def _library_track_label(track: LibraryTrack) -> str:
-    """Rótulo de faixa da biblioteca — com a marca de ausente (T17.1/R7).
+    """Rótulo de faixa da biblioteca — com as marcas de estado (R7/A07).
 
     A marca vem primeiro para sobreviver ao truncamento da linha larga;
-    a legenda abaixo da lista explica o significado.
+    a legenda abaixo da lista explica o significado. ``is_downloaded=False``
+    (faixa enfileirada, falha ou só stream) NUNCA aparece sem a marca —
+    a Biblioteca não finge que baixou (A07).
     """
     artists = ", ".join(track.artist_names)
     label = f"{track.title} — {artists}" if artists else str(track.title)
     if track.is_missing:
         label = f"{MISSING_MARK} {label}"
+    elif not track.is_downloaded:
+        label = f"{NOT_DOWNLOADED_MARK} {label}"
     return label
 
 
@@ -61,13 +66,38 @@ class TrackListView(AutoHighlightListView):
     def set_tracks(self, tracks: list[LibraryTrack]) -> None:
         """Atualiza a lista sem remontar o widget (evita ``DuplicateIds``).
 
-        Os itens são recriados in-place; por isso não usam ``id``. A marca
-        de ausente (R7) também vale para as faixas de playlist.
+        A10: a seleção é restaurada pelo id da faixa (fallback: posição
+        anterior limitada ao novo tamanho). Antes, o ``clear()`` do refresh
+        (download/reconciliação) jogava o cursor para o topo. Os itens são
+        recriados in-place; por isso não usam ``id``. A marca de ausente
+        (R7) e a de "ainda não baixada" (A07) também valem aqui.
         """
+        selected_id = self._selected_track_id()
+        previous_index = self.index
         self.tracks = list(tracks)
         self.clear()
         for track in self.tracks:
             self.append(ListItem(Label(_library_track_label(track), markup=False)))
+        self._restore_index(selected_id, previous_index)
+
+    def _selected_track_id(self) -> int | None:
+        selected = self.get_selected_track()
+        if selected is None:
+            return None
+        return cast("int | None", selected.id)
+
+    def _restore_index(self, selected_id: int | None, previous_index: int | None) -> None:
+        """Re-seleciona o id (ou o vizinho) depois de recriar os itens."""
+        if not self.tracks:
+            self.index = None
+            return
+        if selected_id is not None:
+            for index, track in enumerate(self.tracks):
+                if getattr(track, "id", None) == selected_id:
+                    self.index = index
+                    return
+        if previous_index is not None:
+            self.index = min(previous_index, len(self.tracks) - 1)
 
     def get_selected_track(self) -> LibraryTrack | None:
         """Retorna faixa selecionada."""
@@ -91,7 +121,14 @@ class LibraryListView(AutoHighlightListView):
         self._entries: list[LibraryAlbum | LibraryTrack | None] = []
 
     def set_entries(self, albums: list[LibraryAlbum], singles: list[LibraryTrack]) -> None:
-        """Atualiza a lista in-place (sem ``id`` nos itens — T12-R2)."""
+        """Atualiza a lista in-place (sem ``id`` nos itens — T12-R2).
+
+        A10: a seleção é restaurada pela identidade do item (álbum ou faixa
+        avulsa), com fallback para a posição anterior — o refresh após um
+        download/reconciliação não volta mais para o topo.
+        """
+        selected = self._selected_key()
+        previous_index = self.index
         self.albums = list(albums)
         self.singles = list(singles)
         self._entries = []
@@ -105,6 +142,39 @@ class LibraryListView(AutoHighlightListView):
             for track in self.singles:
                 self._entries.append(track)
                 self.append(ListItem(Label(_library_track_label(track), markup=False)))
+        self._restore_key(selected, previous_index)
+
+    def _selected_key(self) -> tuple[str, int] | None:
+        """Identidade estável da linha selecionada (álbum/faixa/None)."""
+        entry = self._selected_entry()
+        if isinstance(entry, LibraryAlbum):
+            album_id = cast("int | None", entry.album.id)
+            return ("album", album_id) if album_id is not None else None
+        if isinstance(entry, LibraryTrack):
+            track_id = cast("int | None", entry.id)
+            return ("track", track_id) if track_id is not None else None
+        return None
+
+    def _restore_key(self, selected: tuple[str, int] | None, previous_index: int | None) -> None:
+        """Re-seleciona a linha pela chave ou pelo vizinho (A10)."""
+        if not self._entries:
+            self.index = None
+            return
+        if selected is not None:
+            kind, identifier = selected
+            for index, entry in enumerate(self._entries):
+                if (
+                    kind == "album"
+                    and isinstance(entry, LibraryAlbum)
+                    and entry.album.id == identifier
+                ):
+                    self.index = index
+                    return
+                if kind == "track" and isinstance(entry, LibraryTrack) and entry.id == identifier:
+                    self.index = index
+                    return
+        if previous_index is not None:
+            self.index = min(previous_index, len(self._entries) - 1)
 
     @staticmethod
     def _album_label(entry: LibraryAlbum) -> str:
@@ -113,6 +183,10 @@ class LibraryListView(AutoHighlightListView):
             label += f" — {entry.primary_artist_name}"
         count = entry.track_count
         label += f"  ({'1 faixa' if count == 1 else f'{count} faixas'})"
+        # A07: se nem todas têm arquivo, o número honesto aparece na linha —
+        # a contagem de faixas sozinha inflava a sensação de biblioteca cheia.
+        if entry.downloaded_count is not None and entry.downloaded_count < count:
+            label += f"  ✓ {entry.downloaded_count}/{count} baixadas"
         if entry.missing_count:
             suffix = "ausente" if entry.missing_count == 1 else "ausentes"
             label += f"  {MISSING_MARK} {entry.missing_count} {suffix}"
@@ -146,12 +220,29 @@ class PlaylistListView(AutoHighlightListView):
         self.playlists: list[Playlist] = []
 
     def set_playlists(self, playlists: list[Playlist]) -> None:
-        """Atualiza a lista in-place (sem ``id`` nos itens — T12-R2)."""
+        """Atualiza a lista in-place (sem ``id`` nos itens — T12-R2).
+
+        A10: a playlist selecionada continua selecionada depois do refresh
+        (renomear/adicionar); item removido cai para o vizinho.
+        """
+        selected_id = self.get_selected_playlist()
+        previous_id = cast("int | None", selected_id.id) if selected_id is not None else None
+        previous_index = self.index
         self.playlists = list(playlists)
         self.clear()
         for playlist in self.playlists:
             count = len(playlist.tracks)
             self.append(ListItem(Label(playlist_label(str(playlist.name), count), markup=False)))
+        if not self.playlists:
+            self.index = None
+            return
+        if previous_id is not None:
+            for index, playlist in enumerate(self.playlists):
+                if playlist.id == previous_id:
+                    self.index = index
+                    return
+        if previous_index is not None:
+            self.index = min(previous_index, len(self.playlists) - 1)
 
     def get_selected_playlist(self) -> Playlist | None:
         """Playlist selecionada (None = nada destacado)."""
@@ -239,9 +330,12 @@ class NowPlayingBar(Static):
     }
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, volume: int = 50, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.current_track: TrackInfo | None = None
+        # A16: o volume inicial vem da configuração, não de um "50%" fixo —
+        # a barra não pode mentir entre o mount e o primeiro ``play``.
+        self._initial_volume = max(0, min(100, volume))
 
     def _child(self, selector: str, expect_type: type[_WidgetT]) -> _WidgetT | None:
         """Filho por seletor — ou ``None`` se a subárvore já foi podada (Q20).
@@ -271,19 +365,36 @@ class NowPlayingBar(Static):
                 Static("0:00", id="np-time-total"),
                 id="np-progress-container",
             ),
-            Static("🔊 50%", id="np-volume"),
+            Static(self._volume_text(self._initial_volume), id="np-volume"),
             id="np-container",
         )
 
+    @staticmethod
+    def _volume_text(volume: int) -> str:
+        """Texto da barra de volume com ícone coerente (A16)."""
+        icon = "🔇" if volume == 0 else "🔈" if volume < 30 else "🔉" if volume < 70 else "🔊"
+        return f"{icon} {volume}%"
+
     def update_track(self, track: TrackInfo) -> None:
-        """Atualiza faixa em reprodução."""
+        """Atualiza faixa em reprodução.
+
+        A16: sem título/artista a barra mostra "Nada tocando" em vez de
+        ``" — "``; título só de um lado não ganha separador órfão.
+        """
         self.current_track = track
         info = self._child("#np-info", Static)
         if info is None:
             return
-        # escape_markup(): o título/artista vêm do YouTube e podem conter
-        # [colchetes] que o parser de markup do Textual comeria (T12-R6).
-        info.update(f"[b]{escape_markup(track.title)}[/b] — {escape_markup(track.artist)}")
+        title = escape_markup(track.title)
+        artist = escape_markup(track.artist)
+        if title and artist:
+            info.update(f"[b]{title}[/b] — {artist}")
+        elif title:
+            info.update(f"[b]{title}[/b]")
+        elif artist:
+            info.update(artist)
+        else:
+            info.update("Nada tocando")
 
     def on_resize(self, event: events.Resize) -> None:
         """Adapta a barra ao tamanho do terminal (T12-R6).
@@ -346,8 +457,7 @@ class NowPlayingBar(Static):
         vol_widget = self._child("#np-volume", Static)
         if vol_widget is None:
             return
-        icon = "🔇" if volume == 0 else "🔈" if volume < 30 else "🔉" if volume < 70 else "🔊"
-        vol_widget.update(f"{icon} {volume}%")
+        vol_widget.update(self._volume_text(volume))
 
     @staticmethod
     def _format_time(seconds: float) -> str:

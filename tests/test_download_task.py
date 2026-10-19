@@ -6,6 +6,8 @@ identidade estável e retentativa (T02-R1) e a serialização como string
 (StrEnum — persistência futura de T04).
 """
 
+import threading
+
 import pytest
 
 from ytmusic_tui.download.task import (
@@ -119,6 +121,49 @@ def test_task_ids_are_unique_and_stable():
     before = a.id
     a.transition_to(DownloadStatus.RUNNING)
     assert a.id == before
+
+
+def test_try_transition_concorrente_uma_unica_vencedora():
+    """A15: check + set atômicos — no máximo uma transição vence.
+
+    Quatro threads tentam sair de ``RUNNING`` ao mesmo tempo. Sem o lock,
+    duas podiam passar no check e a última sobrescrevia a primeira; com
+    ``try_transition``, exatamente uma vence e nenhuma levanta exceção.
+    """
+    task = _task_in(DownloadStatus.RUNNING)
+    alvos = [
+        DownloadStatus.VALIDATING,
+        DownloadStatus.FAILED,
+        DownloadStatus.CANCELLED,
+        DownloadStatus.INTERRUPTED,
+    ]
+    barreira = threading.Barrier(len(alvos))
+    resultados: list[bool] = []
+    travas = threading.Lock()
+
+    def tentar(alvo: DownloadStatus) -> None:
+        barreira.wait()
+        venceu = task.try_transition(alvo)
+        with travas:
+            resultados.append(venceu)
+
+    threads = [threading.Thread(target=tentar, args=(alvo,)) for alvo in alvos]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert sum(resultados) == 1
+    assert task.status in alvos
+
+
+def test_transition_to_nao_sobrescreve_estado_final_em_corrida():
+    """A15: o perdedor da corrida não sobrescreve nem levanta no caminho certo."""
+    task = _task_in(DownloadStatus.RUNNING)
+
+    assert task.try_transition(DownloadStatus.FAILED) is True
+    assert task.try_transition(DownloadStatus.COMPLETED) is False
+    assert task.status is DownloadStatus.FAILED
 
 
 def test_make_retry_creates_new_task_referencing_previous():

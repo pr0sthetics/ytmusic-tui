@@ -455,5 +455,32 @@ def test_update_track_file_clears_missing_mark(library_service, tmp_path):
     assert track is not None and track.is_missing is False
 
 
+def test_library_album_distingue_baixada_de_enfileirada(library_service, tmp_path):
+    """A07: faixa enfileirada/falha não conta como baixada.
+
+    ``ensure_track`` sem ``update_track_file`` (o que acontece antes do
+    download) não pode inflar a Biblioteca como se o arquivo existisse.
+    """
+    track_id = library_service.ensure_track("A7", "Pendente", "Artista", "Álbum A7")
+    assert track_id is not None
+
+    album = library_service.search_albums("Álbum A7")[0]
+    entry = next(
+        item for item in library_service.list_library_albums() if item.album.id == album.id
+    )
+    assert (entry.track_count, entry.downloaded_count, entry.pending_count) == (1, 0, 1)
+
+    # Download concluído: o registro do arquivo muda o rótulo para baixada.
+    media = tmp_path / "Pendente.mp3"
+    media.write_bytes(b"audio")
+    library_service.update_track_file(track_id, media, 5, "mp3", 320)
+
+    entry = next(
+        item for item in library_service.list_library_albums() if item.album.id == album.id
+    )
+    assert (entry.track_count, entry.downloaded_count, entry.pending_count) == (1, 1, 0)
+    assert entry.missing_count == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -14,6 +14,7 @@ import pytest
 
 from ytmusic_tui import doctor
 from ytmusic_tui.config import settings
+from ytmusic_tui.errors import ConfigValidationError
 from ytmusic_tui.library.migrations import SCHEMA_VERSION
 
 
@@ -24,6 +25,9 @@ def ambiente(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     monkeypatch.setattr(settings, "cache_dir", tmp_path / "cache")
     monkeypatch.setattr(settings, "download_dir", tmp_path / "music")
+    # A11: o diretório de log também é isolado. Antes o doctor consultava o
+    # log real do usuário e a suíte falhava em sandbox/HOME restrito.
+    monkeypatch.setattr(doctor, "log_file_path", lambda: tmp_path / "log" / "ytmusic-tui.log")
     monkeypatch.setattr(doctor, "_which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(doctor, "_libmpv_error", lambda: None)
     return tmp_path
@@ -52,6 +56,23 @@ def test_banco_ausente_e_aviso(ambiente, capsys):
     assert "exit 0" in out
 
 
+def test_config_invalida_tem_linha_propria(ambiente, monkeypatch, capsys):
+    """A02: o doctor reporta config inválida em vez de morrer no import."""
+    erro = ConfigValidationError(
+        "configuração inválida (TOML em /tmp/config.toml ou variáveis YTMUSIC_*):\n"
+        "  - mpv_audio_quality='ultra': Input should be 'low', 'medium', 'high' or 'best'"
+    )
+    monkeypatch.setattr(doctor, "configuration_error", lambda: erro)
+
+    code = doctor.run_doctor()
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "configuração: INVÁLIDA" in out
+    assert "mpv_audio_quality='ultra'" in out
+    assert "Traceback" not in out
+
+
 def test_doctor_nao_cria_nada(ambiente, capsys):
     """Rodar o doctor não pode criar diretórios (checks são somente leitura)."""
     doctor.run_doctor()
@@ -61,6 +82,8 @@ def test_doctor_nao_cria_nada(ambiente, capsys):
     assert not (ambiente / "data").exists()
     assert not (ambiente / "cache").exists()
     assert not (ambiente / "music").exists()
+    # A11: nada do log real é criado/lido pela verificação.
+    assert not (ambiente / "log").exists()
 
 
 def test_banco_corrompido_critico_sem_traceback(ambiente, capsys):

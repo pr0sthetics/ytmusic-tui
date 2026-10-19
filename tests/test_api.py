@@ -8,6 +8,8 @@ de watch única no módulo-folha ``urls`` (teste de fonte, T11-R1).
 """
 
 import re
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -131,7 +133,10 @@ def test_search_catalog_parallel_songs_videos_albums_typed(fake_ytmusic):
     assert video.video_id == "vidv-coldplay"
     assert video.title == "videos-coldplay"
 
-    assert sorted(api._require_client().searches) == ["albums", "songs", "videos"]
+    # A14: cada worker de busca tem o próprio cliente; o conjunto de filtros
+    # consultados é a união dos clientes das threads.
+    searches = sorted(search for client in api._clients for search in client.searches)
+    assert searches == ["albums", "songs", "videos"]
 
 
 def test_get_album_returns_typed_detail(fake_ytmusic):
@@ -298,6 +303,63 @@ def test_literal_da_url_de_watch_so_existe_no_modulo_folha(tmp_path):
 
     src = Path(ytmusic_tui.__file__).parent
     assert _watch_literal_offenders(src) == []
+
+
+def test_busca_concorrente_isola_cliente_por_thread(monkeypatch):
+    """A14: nenhum cliente é usado por duas threads ao mesmo tempo.
+
+    O ``ThreadPoolExecutor`` reaproveita threads; cada uma mantém o próprio
+    ``YTMusic``/sessão. O fake registra as threads que o usaram e a asserção
+    falha se um cliente for compartilhado.
+    """
+
+    class _ThreadFake:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003 - fake
+            self.users: set[int] = set()
+            self._lock = threading.Lock()
+
+        def search(self, query, filter=None, limit=None, ignore_spelling=False):
+            with self._lock:
+                self.users.add(threading.get_ident())
+            time.sleep(0.005)
+            if filter == "albums":
+                return [{"resultType": "album", "title": "A", "browseId": "b"}]
+            if filter == "videos":
+                return [{"resultType": "video", "title": "V", "videoId": "v"}]
+            return [{"resultType": "song", "title": "S", "videoId": "s"}]
+
+    monkeypatch.setattr(api_module, "YTMusic", _ThreadFake)
+    api = YTMusicAPI()
+
+    for index in range(10):
+        api.search_catalog(f"consulta-{index}", songs_limit=1, albums_limit=1, videos_limit=1)
+
+    assert len(api._clients) >= 2  # UI + pelo menos um worker
+    assert all(len(client.users) == 1 for client in api._clients)
+
+
+def test_falha_na_busca_nao_espera_as_chamadas_lentas(monkeypatch):
+    """A14: a primeira falha propaga sem aguardar as outras três chamadas."""
+
+    class _Fake:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003 - fake
+            pass
+
+        def search(self, query, filter=None, limit=None, ignore_spelling=False):
+            if filter == "songs":
+                raise InvalidResponseError("formato inesperado")
+            time.sleep(1.0)
+            return []
+
+    monkeypatch.setattr(api_module, "YTMusic", _Fake)
+    api = YTMusicAPI()
+
+    started = time.monotonic()
+    with pytest.raises(InvalidResponseError):
+        api.search_catalog("lenta")
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.6, f"a falha esperou as chamadas lentas ({elapsed:.2f}s)"
 
 
 if __name__ == "__main__":

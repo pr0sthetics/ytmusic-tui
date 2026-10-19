@@ -80,6 +80,13 @@ def _l2_isolated_app_state(tmp_path, monkeypatch):
     monkeypatch.setattr(api_module.ytmusic, "_cache", None)
 
 
+@pytest.fixture(autouse=True)
+def _reset_api_clients():
+    """A14: transporte injetado na L2 não vaza para o próximo teste/módulo."""
+    yield
+    api_module.ytmusic.reset()
+
+
 @pytest.fixture
 def make_l2_env(tmp_path, monkeypatch):
     """Fábrica de ambientes L2: settings/stub/store + manager reais.

@@ -61,6 +61,10 @@ class YTMusicTUI(App):
     def __init__(self) -> None:
         super().__init__()
         self._ui_timer: Timer | None = None
+        #: Tela principal criada no mount (A03): os eventos do player são
+        #: dela, não da tela ativa — um modal aberto (ajuda/confirmação/
+        #: picker) não pode engolir auto-next nem a atualização da barra.
+        self._main_screen: MainScreen | None = None
         #: Erro tipado da abertura do banco (T05): a UI mostra a mensagem
         #: específica do caso; falha de banco nunca derruba o app.
         self.db_error: LibraryError | None = None
@@ -112,7 +116,9 @@ class YTMusicTUI(App):
         self._ui_timer = self.set_interval(0.5, self._refresh_downloads_ui)
 
         # Instalar a tela principal
-        self.push_screen(MainScreen())
+        main_screen = MainScreen()
+        self._main_screen = main_screen
+        self.push_screen(main_screen)
 
     def action_help(self) -> None:
         """Ajuda via ``App.BINDINGS`` (T12-R1): a MainScreen também a define.
@@ -161,7 +167,15 @@ class YTMusicTUI(App):
         return not self.is_running
 
     def _current_main_screen(self) -> MainScreen | None:
-        """Tela principal ativa, ou ``None`` se não houver tela na pilha.
+        """Tela principal da pilha, mesmo com um modal no topo (A03).
+
+        A tela ativa pode ser ``HelpScreen``/``ConfirmScreen``/``NameInput``
+        /``PlaylistPicker``; os eventos do player continuam pertencendo à
+        ``MainScreen`` que está **abaixo** do modal. Antes, só a tela ativa
+        era considerada e um ``track_ended`` com a ajuda aberta não avançava
+        a fila (0 chamadas de auto-next). A referência do mount é a via
+        principal; a varredura da pilha cobre reentrâncias (ex.: outro mount
+        no mesmo processo, como nos testes).
 
         O timer da UI e os observers do player podem disparar durante o
         encerramento — entre o fechamento das telas e o ``stop`` do timer em
@@ -169,11 +183,17 @@ class YTMusicTUI(App):
         ``ScreenStackError``; o app não pode morrer no teardown (flake
         reproduzido pela suíte completa na corrida baseline do T08).
         """
+        if self._is_shutting_down():
+            return None
+        if self._main_screen is not None and self._main_screen.is_mounted:
+            return self._main_screen
         try:
-            screen = self.screen
+            for screen in reversed(self.screen_stack):
+                if isinstance(screen, MainScreen) and screen.is_mounted:
+                    return screen
         except ScreenStackError:
             return None
-        return screen if isinstance(screen, MainScreen) else None
+        return None
 
     def _handle_player_event(self, event: PlayerEvent) -> None:
         """Atualiza a UI em resposta a um evento do player."""
@@ -239,6 +259,8 @@ class YTMusicTUI(App):
         """Limpeza ao sair."""
         if self._ui_timer:
             self._ui_timer.stop()
+        # A03: nenhum evento tardio deve tocar a tela já desmontada.
+        self._main_screen = None
         # T11-R2: sai da lista antes de encerrar — um app desmontado não pode
         # voltar a receber eventos se o player for reiniciado (novo mount no
         # mesmo processo, como nos testes).

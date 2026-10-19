@@ -6,6 +6,81 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Corrigido
+
+- **Downloads (A01):** a tabela não perde mais a seleção a cada 0,5 s — as
+  colunas e as linhas usam chaves estáveis (`task.id`), a seleção é
+  restaurada pela linha e as células são atualizadas no lugar. `r`/`d`/`c`
+  passam a agir sempre na linha que está sob o cursor.
+- **Configuração (A02):** `mpv_audio_quality`, `download_format`,
+  `download_quality` e `library_db_name` são validados; TOML/ambiente
+  inválido vira mensagem curta com campo/valor esperado e **exit 1**, nunca
+  traceback. O `doctor` reporta a configuração inválida numa linha própria e
+  a aba Config usa fallback defensivo no `Select`.
+- **Player modal (A03):** eventos do player (auto-next, barra, erro) são
+  processados mesmo com Ajuda/Confirmação/picker aberto — a `MainScreen` é
+  resolvida pela pilha, não apenas pela tela ativa.
+- **TOML (A04):** gravação atômica (temporário + `fsync` + `os.replace`,
+  modo 0600) e round-trip com **tomlkit**: comentários, ordem e tabelas
+  aninhadas são preservados; TOML inválido não é mais zerado em silêncio.
+- **Downloads em voo (A05):** cada tarefa usa um `DownloadOptions` imutável
+  (formato, qualidade, diretório, metadados) tirado no enfileiramento e o
+  caminho final persistido — mudar a Config no meio não mistura extensão,
+  pós-processador e destino.
+- **Escritas da TUI (A06):** `LibraryError`/`IntegrityError` em playlists,
+  curtidas e registro de download viram log + toast em 3 partes; a
+  duplicata em playlist é idempotente. Exceção inesperada do worker de
+  download vira `FAILED`, não traceback.
+- **Biblioteca honesta (A07):** faixa enfileirada/falha/só stream aparece
+  com a marca `☁` e o álbum mostra `✓ N/M baixadas` — nada mais finge que
+  um arquivo ausente foi baixado. Decisão: listar (com rótulo) em vez de
+  filtrar, para não esconder faixas curtidas/adicionadas a playlists.
+- **Baixar álbum (A08):** só pula a faixa se `is_downloaded` **e** o
+  arquivo existir no disco; arquivo sumido volta a ser enfileirado para
+  reparação.
+- **Downloads na UI (A09):** `c` cancela a tarefa selecionada, `C` limpa as
+  concluídas/falhas, `r` também retenta `FAILED` e `i` abre o detalhe
+  completo do erro. Cancelar não apaga arquivo final.
+- **Seleção (A10):** refresh de Biblioteca/Playlists restaura a seleção
+  pelo id (álbum, faixa avulsa, faixa do álbum ou playlist); item removido
+  cai para o vizinho.
+- **Testes do `doctor` (A11):** diretório de log isolado em tmp — a suíte
+  deixa de ler/criar o log real do usuário.
+- **Dependências (A12):** pisos alinhados ao testado (`textual>=8.2,<9`,
+  `ytmusicapi>=1.12,<2`, `python-mpv>=1.0,<2`, `yt-dlp>=2026.8.19`), `rich`
+  removido das dependências diretas e `tomlkit` declarado; `uv.lock`
+  atualizado.
+- **Launcher da raiz (A13):** `python main.py` delega ao CLI do pacote —
+  `--version`, `doctor` e a mensagem de config inválida funcionam do fonte.
+- **Busca concorrente (A14):** cliente/sessão do ytmusicapi é **por
+  thread** (a UI e os três workers não compartilham cookies/visitor id);
+  uma falha não espera as outras chamadas lentas.
+- **Transições (A15):** `try_transition` faz check + set sob lock por
+  tarefa; worker, cancelamento e `shutdown` não sobrescrevem o vencedor nem
+  vazam `InvalidTransitionError`.
+
+### Adicionado
+
+- **Barra do player (A16):** volume inicial vem da configuração e a barra
+  mostra "Nada tocando" (sem `" — "` órfão); título/artista só de um lado
+  não ganha separador.
+- **Modais (A17):** CSS próprio para nome/picker (centralizados, com
+  scroll) e botões de mouse em Confirmação (Confirmar/Cancelar), Nome
+  (Criar/Salvar + Cancelar) e Picker (Cancelar), testados em 80×24.
+- **Limite da Biblioteca (A18):** quando a lista chega a 500, o total real
+  é consultado e a legenda avisa "Mostrando N de M" — sem truncamento
+  silencioso.
+
+### Documentado
+
+- README: contagem de testes e limitações de temas corrigidas (tema vale
+  por sessão; "custom themes" segue no roadmap).
+- Governança interna do ciclo: o plano de engenharia anterior vira
+  **documento histórico** e o backlog passa a seguir a análise de código
+  de 2026-10-19 — documentos de trabalho do mantenedor, fora do repo.
+- A19 (histórico/stats/seek/speed) permanece como dívida planejada para
+  trabalho futuro — nenhuma API foi removida.
+
 ## [0.3.1] - 2026-10-19
 
 ### Adicionado

@@ -4,13 +4,13 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-594%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-637%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
 > ## 🤖 AI-native, human-verified
 >
-> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **594 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **641 automated tests** (637 run offline by default) and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -419,8 +419,8 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **AI-native, human-verified** (note at the top): the 594 tests cover the main flow, but the occasional bug is expected
-- No MPRIS, lyrics, equalizer, automatic radio or themes (Roadmap)
+- **AI-native, human-verified** (note at the top): the 637 offline tests cover the main flow, but the occasional bug is expected
+- No MPRIS, lyrics, equalizer or automatic radio (Roadmap). Built-in **themes** are available from the command palette and apply to the current session; custom theme files are not supported yet.
 
 ## 🆘 When something breaks (and it's not the app)
 
@@ -481,7 +481,7 @@ ytmusic-tui/
 │       ├── screens.py         # MainScreen: tabs, shortcuts and navigation
 │       ├── widgets.py         # Custom widgets (lists, player bar)
 │       └── *_controller.py    # Playback, downloads, library and playlists (mixins)
-└── tests/                     # 594 tests in layers (L1 mocks + L2 local) + opt-in integration
+└── tests/                     # 637 offline tests in layers (L1 mocks + L2 local) + 4 opt-in
 ```
 
 ## 🤖 Development methodology & AI stack

@@ -100,6 +100,10 @@ def hydrate_interrupted(row: DownloadTaskRecord) -> DownloadTask:
         retry_of=row.retry_of or None,
         status=DownloadStatus.INTERRUPTED,
         error="Interrompido no encerramento anterior",
+        # A05: o caminho final persistido volta com a tarefa; a retomada
+        # (:meth:`DownloadManager.retry_interrupted`) troca por um snapshot e
+        # um caminho novos, conforme a configuração atual.
+        final_path=Path(row.final_path) if row.final_path else None,
     )
 
 

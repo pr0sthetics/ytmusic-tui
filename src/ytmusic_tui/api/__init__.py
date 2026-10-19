@@ -30,10 +30,11 @@ literal da URL existe — o player e o download também pegam de lá.
 
 import functools
 import logging
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import requests
 from ytmusicapi import YTMusic
@@ -93,24 +94,51 @@ class YTMusicAPI:
         self._policy = policy or RetryPolicy()
         self._sleep = sleep
         self._cache = cache
+        # A14: um cliente/sessão POR THREAD. ``requests.Session`` e o
+        # ``YTMusic`` (visitor id/cookies) não têm garantia de thread-safety;
+        # a busca dispara três chamadas em paralelo. O ``ThreadPoolExecutor``
+        # é reaproveitado entre buscas, então cada worker reutiliza o próprio
+        # cliente — isolamento sem criar cliente por requisição.
+        self._local = threading.local()
+        self._clients: list[YTMusic] = []
+        self._clients_lock = threading.Lock()
+        #: Cliente injetado por testes de transporte (L2): vale para todas as
+        #: threads, inclusive as do pool de busca.
+        self._override_client: YTMusic | None = None
+
+    def _use_client(self, client: YTMusic) -> None:
+        """Injeta um cliente de transporte para testes (L2), em todas as threads."""
+        self._override_client = client
+        self._local.client = client
+        self._client = client
+        self._initialized = True
 
     def initialize(self) -> bool:
-        """Inicializa o cliente YTMusic em modo anônimo (sem login).
+        """Inicializa o cliente YTMusic da THREAD ATUAL em modo anônimo.
 
         A autenticação OAuth do ``ytmusicapi`` está quebrada no lado do Google
         desde ago/2025 (sigma67/ytmusicapi#813): os tokens OAuth são rejeitados
         pelos endpoints internos do YouTube Music com ``HTTP 400 - invalid
         argument``. O cliente anônimo cobre busca, reprodução e download; a
         biblioteca local continua em SQLite.
+
+        A14: cada thread tem o próprio ``YTMusic``/``requests.Session`` — a
+        thread da UI e os três workers de busca não compartilham cookies,
+        visitor id nem sessão.
         """
-        if self._initialized:
+        client = cast("YTMusic | None", getattr(self._local, "client", None))
+        if client is not None:
             return True
 
         try:
             # YTMusic() anônimo não faz chamadas de rede no construtor; o
             # visitor id só é obtido de forma lazy na primeira requisição.
             # A sessão própria aplica os timeouts separados (T10-R3).
-            self._client = YTMusic(requests_session=_new_session())
+            client = YTMusic(requests_session=_new_session())
+            self._local.client = client
+            with self._clients_lock:
+                self._clients.append(client)
+            self._client = client
             self._initialized = True
             self.last_error = ""
             return True
@@ -121,17 +149,26 @@ class YTMusicAPI:
             return False
 
     def reset(self) -> None:
-        """Descarta o cliente atual para permitir reinicialização."""
+        """Descarta os clientes (todas as threads) para permitir reinicialização."""
+        self._local.client = None
+        self._override_client = None
         self._client = None
         self._initialized = False
+        with self._clients_lock:
+            self._clients.clear()
 
     def _require_client(self) -> YTMusic:
-        """Cliente subjacente — privado: objeto do ytmusicapi não sai daqui."""
-        if not self._initialized:
-            self.initialize()
-        if not self._client:
+        """Cliente subjacente da thread atual — privado (não sai daqui)."""
+        if self._override_client is not None:
+            return self._override_client
+        client = cast("YTMusic | None", getattr(self._local, "client", None))
+        if client is None:
+            if not self.initialize():
+                raise RuntimeError("YTMusic não inicializado.")
+            client = cast("YTMusic | None", getattr(self._local, "client", None))
+        if not client:
             raise RuntimeError("YTMusic não inicializado.")
-        return self._client
+        return client
 
     def _get_cache(self) -> ResponseCache:
         """Cache em disco (lazy: o diretório sai do ``settings`` na 1ª leitura)."""
@@ -183,33 +220,38 @@ class YTMusicAPI:
             logger.debug("cache hit na busca")
             return SearchResult.from_payload(cached)
 
-        # Resolver o cliente antes de paralelizar: o visitor id anônimo é
-        # inicializado de forma lazy na primeira requisição.
-        client = self._require_client()
+        # A14: NÃO resolve o cliente na thread da UI — cada worker resolve o
+        # próprio dentro de ``_call``. Criar aqui um cliente extra só gastaria
+        # sessão/visitor id sem uso.
         context = f'busca "{query}"'
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            tracks_future = pool.submit(
+        pool = ThreadPoolExecutor(max_workers=3)
+        futures = [
+            pool.submit(
                 self._call,
-                lambda: client.search(query, filter="songs", limit=songs_limit),
+                lambda filtro=filtro, limite=limite: self._require_client().search(
+                    query, filter=filtro, limit=limite
+                ),
                 context=context,
                 should_abort=should_abort,
             )
-            albums_future = pool.submit(
-                self._call,
-                lambda: client.search(query, filter="albums", limit=albums_limit),
-                context=context,
-                should_abort=should_abort,
+            for filtro, limite in (
+                ("songs", songs_limit),
+                ("albums", albums_limit),
+                ("videos", videos_limit),
             )
-            videos_future = pool.submit(
-                self._call,
-                lambda: client.search(query, filter="videos", limit=videos_limit),
-                context=context,
-                should_abort=should_abort,
-            )
-            result = search_result_from_raws(
-                tracks_future.result(), albums_future.result(), videos_future.result()
-            )
+        ]
+        try:
+            result = search_result_from_raws(*(future.result() for future in futures))
+        except Exception:
+            # A14: uma falha não espera as outras chamadas — as pendentes são
+            # canceladas e o pool não é aguardado no encerramento (as que já
+            # estão rodando terminam em background, sem bloquear a UI).
+            for future in futures:
+                future.cancel()
+            raise
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         cache.put("search", key, result.to_payload())
         return result

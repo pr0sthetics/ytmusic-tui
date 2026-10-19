@@ -1,5 +1,9 @@
 """Testes para configuração."""
 
+import os
+import stat
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -9,6 +13,7 @@ from pydantic_settings import SettingsConfigDict
 
 from ytmusic_tui import config as config_mod
 from ytmusic_tui.config import Settings
+from ytmusic_tui.errors import ConfigError
 
 
 def isolated_settings(toml_file: Path):
@@ -240,6 +245,175 @@ def test_resolve_toml_file_keeps_the_default_without_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config_mod, "DEFAULT_CONFIG_FILE", real)
 
     assert config_mod._resolve_toml_file(Settings) == real
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("mpv_audio_quality", "ultra"),
+        ("download_format", "ogg"),
+        ("download_quality", "999"),
+        ("download_quality", "abc"),
+        ("library_db_name", "../evil.db"),
+        ("library_db_name", "/tmp/evil.db"),
+    ],
+)
+def test_valores_fora_do_enum_sao_recusados(tmp_path, monkeypatch, campo, valor):
+    """A02: typo no TOML vira erro de validação com campo e esperado.
+
+    ``mpv_audio_quality="ultra"`` antes chegava no ``Select`` e derrubava o
+    mount com ``InvalidSelectValueError``; ``download_quality``/nome do banco
+    nem eram validados.
+    """
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml = tmp_path / "config.toml"
+    toml.write_text(f'{campo} = "{valor}"\n', encoding="utf-8")
+
+    with pytest.raises(ValidationError) as excinfo:
+        isolated_settings(toml)()
+
+    assert campo in str(excinfo.value)
+
+
+def test_download_quality_best_e_faixa_valida(tmp_path, monkeypatch):
+    """A02: ``best`` e a faixa 64–320 são aceitos e normalizados."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml = tmp_path / "config.toml"
+    toml.write_text('download_quality = "best"\n', encoding="utf-8")
+    assert isolated_settings(toml)().download_quality == "best"
+
+    toml.write_text("download_quality = 128\n", encoding="utf-8")
+    assert isolated_settings(toml)().download_quality == "128"
+
+
+def test_update_and_save_preserva_comentarios_e_estrutura(tmp_path, monkeypatch):
+    """A04: tomlkit preserva comentários, ordem e tabelas aninhadas."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml_path = tmp_path / "config.toml"
+    toml_path.write_text(
+        "# comentário do topo\n"
+        "mpv_volume = 10  # volume inicial\n"
+        'download_format = "mp3"\n'
+        "\n"
+        "[extra]\n"
+        'chave = "preservada"\n',
+        encoding="utf-8",
+    )
+
+    settings = isolated_settings(toml_path)()
+    settings.update_and_save(mpv_volume=33)
+
+    text = toml_path.read_text(encoding="utf-8")
+    assert "# comentário do topo" in text
+    assert "# volume inicial" in text
+    assert "[extra]" in text and 'chave = "preservada"' in text
+    data = tomllib.loads(text)
+    assert data["mpv_volume"] == 33
+    assert data["extra"]["chave"] == "preservada"
+
+
+def test_update_and_save_e_atomico_e_nao_trunca_em_falha(tmp_path, monkeypatch):
+    """A04: OSError no meio da gravação deixa o arquivo antigo íntegro."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml_path = tmp_path / "config.toml"
+    original = "# original\nmpv_volume = 10\n"
+    toml_path.write_text(original, encoding="utf-8")
+    settings = isolated_settings(toml_path)()
+
+    def _replace_falha(src, dst):  # noqa: ANN001 - seam do os.replace
+        raise OSError("disco cheio")
+
+    monkeypatch.setattr(config_mod.os, "replace", _replace_falha)
+    with pytest.raises(OSError, match="disco cheio"):
+        settings.update_and_save(mpv_volume=20)
+
+    assert toml_path.read_text(encoding="utf-8") == original
+    assert not list(tmp_path.glob(".config.toml.*.tmp")), "temporário órfão"
+
+
+def test_update_and_save_grava_0600(tmp_path, monkeypatch):
+    """A04: o TOML novo nasce 0600, independentemente do umask."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml_path = tmp_path / "config.toml"
+    settings = isolated_settings(toml_path)()
+    settings.update_and_save(mpv_volume=33)
+
+    assert stat.S_IMODE(toml_path.stat().st_mode) == 0o600
+
+
+def test_toml_invalido_e_preservado_e_reportado(tmp_path, monkeypatch):
+    """A04: TOML inválido não é zerado em silêncio — erro tipado, original fica."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml_path = tmp_path / "config.toml"
+    toml_path.write_text("mpv_volume = 10\n", encoding="utf-8")
+    settings = isolated_settings(toml_path)()
+    original = "isto nao e toml = [\n"
+    toml_path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="não é um TOML válido"):
+        settings.update_and_save(mpv_volume=20)
+
+    assert toml_path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize(
+    "conteudo",
+    [
+        'mpv_audio_quality = "ultra"\n',
+        'mpv_volume = "abc"\n',
+        'download_format = "ogg"\n',
+        "isto nao e toml = [\n",
+    ],
+)
+def test_cli_com_config_invalida_sai_1_sem_traceback(tmp_path, conteudo):
+    """A02: ``python -m ytmusic_tui`` recusa config inválida com mensagem útil."""
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "config.toml").write_text(conteudo, encoding="utf-8")
+
+    env = {chave: valor for chave, valor in os.environ.items() if not chave.startswith("YTMUSIC_")}
+    env.update(
+        {
+            "YTMUSIC_CONFIG_DIR": str(cfg),
+            "YTMUSIC_DATA_DIR": str(tmp_path / "data"),
+            "YTMUSIC_CACHE_DIR": str(tmp_path / "cache"),
+            "YTMUSIC_DOWNLOAD_DIR": str(tmp_path / "music"),
+            "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+        }
+    )
+    result = subprocess.run(
+        [sys.executable, "-m", "ytmusic_tui"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert "configuração inválida" in result.stderr
+    # Diz que TOML/ambiente são as fontes possíveis (o caso de sintaxe cita
+    # o TOML; o de valor inválido cita ambos).
+    assert "YTMUSIC" in result.stderr or "TOML" in result.stderr
+    assert "Corrija o arquivo" in result.stderr or "Corrija a sintaxe" in result.stderr
 
 
 if __name__ == "__main__":
