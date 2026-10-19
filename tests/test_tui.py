@@ -1838,6 +1838,145 @@ async def test_p_usa_faixa_atual_fora_da_biblioteca(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_p_na_busca_adiciona_a_musica_destacada(monkeypatch):
+    """F9: p na Busca usa o resultado destacado — já baixado, adiciona direto."""
+    alvo = library.create_playlist("Alvo")
+    assert library.ensure_track("S1", "Da Busca", "Artista") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        monkeypatch.setattr(player, "_current_track", None)
+
+        screen.display_search_results([_song("S1", "Da Busca")])
+        await pilot.pause()
+        screen.query_one("#search-songs", SongListView).focus()
+        await pilot.pause()
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert not any("Nenhuma faixa" in toast for toast in toasts)
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        await pilot.press("enter")  # primeira playlist da lista
+        await pilot.pause()
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert [entry.track.title for entry in stored.tracks] == ["Da Busca"]
+
+
+@pytest.mark.asyncio
+async def test_p_na_busca_adiciona_o_video_destacado(monkeypatch):
+    """F9+F10: o mesmo p vale para a seção 🎬 Vídeos da Busca."""
+    alvo = library.create_playlist("Alvo")
+    assert library.ensure_track("VV1", "Clipe", "Artista") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        monkeypatch.setattr(player, "_current_track", None)
+
+        screen.display_search_results(SearchResult(videos=(_song("VV1", "Clipe"),)))
+        await pilot.pause()
+        screen.query_one("#search-videos", SongListView).focus()
+        await pilot.pause()
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        await pilot.press("enter")
+        await pilot.pause()
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert [entry.track.title for entry in stored.tracks] == ["Clipe"]
+
+
+@pytest.mark.asyncio
+async def test_p_na_busca_avisa_destacada_ainda_nao_baixada(monkeypatch):
+    """F9: destacada fora da biblioteca ganha o recado honesto, sem picker."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        monkeypatch.setattr(player, "_current_track", None)
+
+        screen.display_search_results([_song("ND1", "Só no YouTube")])
+        await pilot.pause()
+        screen.query_one("#search-songs", SongListView).focus()
+        await pilot.pause()
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert any("ainda não está na biblioteca" in toast for toast in toasts)
+        assert not any("Nenhuma faixa" in toast for toast in toasts)
+        assert not isinstance(app.screen, PlaylistPickerScreen)
+
+
+@pytest.mark.asyncio
+async def test_p_na_busca_destacada_vence_a_faixa_tocando(monkeypatch):
+    """F9: o gesto explícito da Busca tem prioridade sobre a faixa em reprodução."""
+    alvo = library.create_playlist("Alvo")
+    assert library.ensure_track("T1", "Tocando", "Artista") is not None
+    assert library.ensure_track("S1", "Destacada", "Artista") is not None
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        monkeypatch.setattr(
+            player,
+            "_current_track",
+            TrackInfo(video_id="T1", title="Tocando", artist="Artista"),
+        )
+
+        screen.display_search_results([_song("S1", "Destacada")])
+        await pilot.pause()
+        screen.query_one("#search-songs", SongListView).focus()
+        await pilot.pause()
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert isinstance(app.screen, PlaylistPickerScreen)
+        await pilot.press("enter")
+        await pilot.pause()
+        stored = library.get_playlist(alvo.id)
+        assert stored is not None
+        assert [entry.track.title for entry in stored.tracks] == ["Destacada"]
+
+
+@pytest.mark.asyncio
+async def test_p_na_busca_destacada_tocando_usa_o_recado_atual(monkeypatch):
+    """F9: destacada == faixa tocando → o Ctrl+D baixa ela mesma; recado do R4."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        monkeypatch.setattr(
+            player,
+            "_current_track",
+            TrackInfo(video_id="P1", title="Tocando", artist="Artista"),
+        )
+
+        screen.display_search_results([_song("P1", "Tocando")])
+        await pilot.pause()
+        screen.query_one("#search-songs", SongListView).focus()
+        await pilot.pause()
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert any("Baixe a faixa primeiro" in toast for toast in toasts)
+        assert not any("ainda não está na biblioteca" in toast for toast in toasts)
+        assert not isinstance(app.screen, PlaylistPickerScreen)
+
+
+@pytest.mark.asyncio
 async def test_pickar_nova_playlist_cria_e_adiciona(monkeypatch):
     """T17.1/R4: "➕ Nova playlist…" encadeia o nome e já adiciona a faixa."""
     assert library.ensure_track("NV1", "Faixa Nova", "Artista") is not None

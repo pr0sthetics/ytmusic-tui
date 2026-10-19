@@ -4,13 +4,13 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-589%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-594%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
 > ## 🤖 AI-native, human-verified
 >
-> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **589 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **594 automated tests** and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -22,7 +22,7 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 - 💿 **Album tab**: open an album from the search and see tracks, artist and year — `Enter` plays (with a continuous queue) and `A` downloads the whole album, **skipping tracks already downloaded**
 - 📥 **Download** via yt-dlp + ffmpeg: best stream available → MP3 320 kbps (or opus/m4a/flac), with ID3 tags and **embedded cover art**
 - 📚 **Local library** in SQLite (no cloud): downloaded tracks organized **by album** (plus a "standalone tracks" section), local likes and playback from the local file
-- 🎵 **Local playlists** in SQLite: create, rename and delete (with confirmation), add a track or a whole album from the library, reorder and play **in order**
+- 🎵 **Local playlists** in SQLite: create, rename and delete (with confirmation), add a track from the library or from the search results, or a whole album from the library, reorder and play **in order**
 - 📊 **Downloads** tab with real-time progress and configurable simultaneous downloads
 - 🚫 **No login**: search, playback and download all operate anonymously
 - ⌨️ Responsive **Textual** interface, with mouse support (tabs, lists, buttons) and vim-style shortcuts
@@ -281,7 +281,7 @@ python main.py           # straight from the source tree (uses src/, no install)
 ### Basic flow
 
 1. `Ctrl+S` to go to the search → type and press `Enter`
-2. `Enter` on a song plays it; `→` / `←` move through the queue
+2. `Enter` on a song (or video) plays it; `p` adds the highlighted result to a playlist (it must already be downloaded); `→` / `←` move through the queue
 3. `Enter` on an album opens the 💿 tab with its tracks; `A` (or the button) downloads the whole album
 4. `Ctrl+D` downloads the track now playing — follow it on the 📥 Downloads tab
 5. `Ctrl+L` opens the local library — now **by album**: `Enter` expands an album (tracks in order; `t` plays it), `p` adds the selected track and `Shift+P` adds the whole album (open or just highlighted) to a playlist
@@ -298,7 +298,7 @@ python main.py           # straight from the source tree (uses src/, no install)
 | `Ctrl+D` | Download the track now playing |
 | `A` | Download the whole album (album tab) |
 | `T` | Play the open album from the library |
-| `P` | Add the selected library track (or the current track) to a playlist |
+| `P` | Add the selected library track, the highlighted search result, or the current track to a playlist |
 | `Shift+P` | Add the open or highlighted library album to a playlist |
 | `N` / `E` | Playlists: new / rename |
 | `Delete` | Delete the selected playlist (with confirmation); inside a playlist, remove the selected track |
@@ -410,6 +410,7 @@ than the app).
 **Search and catalog:**
 - Up to **25 songs + 20 videos + 15 albums** per query
 - Video results (clips/lives) come as **audio**: they play and download like songs — there's no video image
+- Adding to a playlist from the search needs the track **downloaded** first (`p` shows the way when it isn't)
 - No advanced filters (search by artist, playlist, sorting etc.)
 
 **Downloads and quality:**
@@ -418,7 +419,7 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **AI-native, human-verified** (note at the top): the 589 tests cover the main flow, but the occasional bug is expected
+- **AI-native, human-verified** (note at the top): the 594 tests cover the main flow, but the occasional bug is expected
 - No MPRIS, lyrics, equalizer, automatic radio or themes (Roadmap)
 
 ## 🆘 When something breaks (and it's not the app)
@@ -480,7 +481,7 @@ ytmusic-tui/
 │       ├── screens.py         # MainScreen: tabs, shortcuts and navigation
 │       ├── widgets.py         # Custom widgets (lists, player bar)
 │       └── *_controller.py    # Playback, downloads, library and playlists (mixins)
-└── tests/                     # 589 tests in layers (L1 mocks + L2 local) + opt-in integration
+└── tests/                     # 594 tests in layers (L1 mocks + L2 local) + opt-in integration
 ```
 
 ## 🤖 Development methodology & AI stack

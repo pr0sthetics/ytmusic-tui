@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from textual.widgets import Static, TabbedContent
 from textual.worker import Worker
 
+from ytmusic_tui.api.models import Track
 from ytmusic_tui.library import library
 from ytmusic_tui.library.errors import LibraryError, describe_library_error
 from ytmusic_tui.library.models import Playlist
@@ -28,6 +29,7 @@ from ytmusic_tui.tui.messages import (
     NO_TRACK_PLAYING,
     PLAYLIST_ADD_FAILED,
     PLAYLIST_ADD_NEEDS_DOWNLOAD,
+    PLAYLIST_ADD_SEARCH_NEEDS_DOWNLOAD,
     PLAYLIST_DELETE_FAILED,
     PLAYLIST_EMPTY_TEXT,
     PLAYLIST_LOADING_TEXT,
@@ -55,7 +57,7 @@ from ytmusic_tui.tui.messages import (
     playlist_track_removed,
     playlists_unavailable,
 )
-from ytmusic_tui.tui.widgets import PlaylistListView, TrackListView
+from ytmusic_tui.tui.widgets import PlaylistListView, SongListView, TrackListView
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +97,10 @@ class PlaylistController:
     # Membros fornecidos pela tela host (o mypy analisa cada mixin
     # isoladamente; as declarações abaixo existem só na checagem de tipos).
     if TYPE_CHECKING:
+        from textual.widget import Widget
+
         app: Any
+        focused: Widget | None
 
         def query_one(self, selector: Any, expect_type: Any = None) -> Any: ...
         def run_worker(self, *args: Any, **kwargs: Any) -> Worker[Any]: ...
@@ -400,13 +405,13 @@ class PlaylistController:
     # ===== Adicionar à playlist (T17.1/R4/R5) =====
 
     def action_add_to_playlist(self) -> None:
-        """P: adiciona a playlist a faixa selecionada ou a que está tocando.
+        """P: adiciona à playlist a faixa destacada ou a que está tocando.
 
-        Mesmo desenho do ``l`` (curtir), que só olha a faixa em reprodução:
-        com uma faixa destacada na Biblioteca (avulsa ou dentro do álbum
-        aberto) ela tem prioridade — é o gesto explícito; fora da Biblioteca
-        vale a faixa atual. Fora da biblioteca local o recado é o mesmo do
-        curtir: baixe primeiro (R4).
+        O gesto explícito vence: com uma faixa destacada na Biblioteca
+        (avulsa ou dentro do álbum aberto) ou na Busca (lista de resultados
+        com foco), ela tem prioridade; fora dessas, vale a faixa atual —
+        como no ``l`` (curtir). Faixa destacada fora da biblioteca local:
+        recado honesto com o caminho (R4/F9).
         """
         track = self._track_for_playlist_add()
         if track is None:
@@ -434,15 +439,20 @@ class PlaylistController:
         )
 
     def _track_for_playlist_add(self) -> LibraryTrack | None:
-        """Faixa alvo do ``p``: seleção da Biblioteca ou a faixa em reprodução."""
+        """Faixa alvo do ``p``: destaque (Biblioteca/Busca) ou a em reprodução."""
         try:
             tabs = self.query_one("#main-tabs", TabbedContent)
         except Exception:
             tabs = None
-        if tabs is not None and tabs.active == "tab-library":
+        active = tabs.active if tabs is not None else None
+        if active == "tab-library":
             selected = self._selected_library_track()
             if selected is not None:
                 return selected
+        elif active == "tab-search":
+            highlighted = self._highlighted_search_track()
+            if highlighted is not None:
+                return self._search_result_for_playlist_add(highlighted)
         playing = player.current_track
         if not playing or not playing.video_id:
             self._toast(NO_TRACK_PLAYING)
@@ -452,6 +462,36 @@ class PlaylistController:
             self._toast(PLAYLIST_ADD_NEEDS_DOWNLOAD)
             return None
         return cast(LibraryTrack, lib_track)
+
+    def _highlighted_search_track(self) -> Track | None:
+        """Faixa destacada na Busca (🎵 ou 🎬), quando a lista tem o foco (F9).
+
+        Foco no campo de busca não conta: sem destaque explícito, o ``p``
+        segue com a faixa em reprodução. O auto-destaque do ``ListView``
+        garante um item realçado quando a lista de resultados recebe o foco.
+        """
+        focused = self.focused
+        if isinstance(focused, SongListView) and focused.id in ("search-songs", "search-videos"):
+            return focused.get_selected_song()
+        return None
+
+    def _search_result_for_playlist_add(self, highlighted: Track) -> LibraryTrack | None:
+        """Resolve a destacada da Busca na biblioteca; senão, avisa o caminho (F9).
+
+        O ``Ctrl+D`` baixa a faixa **em reprodução** — com destaque diferente,
+        o recado certo é tocar (Enter) e baixar (Ctrl+D) a destacada; quando a
+        destacada já é a que toca, vale o recado original do R4.
+        """
+        if highlighted.video_id:
+            lib_track = library.get_track_by_source_id(highlighted.video_id)
+            if lib_track is not None:
+                return cast(LibraryTrack, lib_track)
+        playing = player.current_track
+        if playing is not None and playing.video_id == highlighted.video_id:
+            self._toast(PLAYLIST_ADD_NEEDS_DOWNLOAD)
+        else:
+            self._toast(PLAYLIST_ADD_SEARCH_NEEDS_DOWNLOAD)
+        return None
 
     def _open_playlist_picker(
         self, title: str, on_pick: Callable[[Playlist | str | None], None]
