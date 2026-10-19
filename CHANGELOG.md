@@ -6,6 +6,8 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.3.1] - 2026-10-19
+
 ### Adicionado
 
 - Busca: a tecla `p` adiciona à playlist a faixa **destacada** nos resultados (músicas e vídeos) — já na biblioteca, entra direto pelo picker; ainda não baixada, o aviso mostra o caminho (`Enter` para tocar, `Ctrl+D` para baixar); sem lista de resultados focada, vale a faixa em reprodução, como antes (F9)
