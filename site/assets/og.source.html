@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>ytmusic-tui — social card</title>
+<style>
+  @font-face{font-family:"Libre Franklin";src:url(fonts/libre-franklin-400-700-normal.woff2) format("woff2");font-style:normal;font-weight:400 700;font-display:swap}
+  @font-face{font-family:"Source Serif 4";src:url(fonts/source-serif-4-400-normal.woff2) format("woff2");font-style:normal;font-weight:400;font-display:swap}
+  @font-face{font-family:"Courier Prime";src:url(fonts/courier-prime-400-normal.woff2) format("woff2");font-style:normal;font-weight:400;font-display:swap}
+  @font-face{font-family:"Courier Prime";src:url(fonts/courier-prime-700-normal.woff2) format("woff2");font-style:normal;font-weight:700;font-display:swap}
+
+  :root{
+    --paper:#f1eee5;--paper-2:#e9e5d9;--ink:#191813;--ink-2:#4d4a41;--ink-3:#696459;
+    --blue:#1d4c8c;--red:#9b3428;--screen:#12110f;--screen-ink:#e8e3d7;--screen-dim:#9b978b;
+    --screen-rule:#34312b;--ok:#9acb86;--amber:#e0b36b;--bad:#d47a6c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;width:1200px;height:630px;overflow:hidden}
+  body{
+    position:relative;background:var(--paper);color:var(--ink);
+    font-family:"Source Serif 4",Georgia,serif;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.86' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:180px 180px;
+  }
+  body::before{content:"";position:absolute;inset:0;background:rgba(241,238,229,.955);pointer-events:none}
+  .sheet{position:absolute;inset:0;padding:0}
+  .sheet::before{content:"";position:absolute;top:0;left:0;right:0;height:6px;background:var(--blue)}
+  .header{position:absolute;top:26px;left:48px;right:48px;display:grid;grid-template-columns:1fr auto 1fr;align-items:baseline;gap:24px;padding-bottom:11px;border-bottom:1px solid var(--ink)}
+  .wordmark{font:700 20px/1 "Libre Franklin",Arial,sans-serif;letter-spacing:-.035em;white-space:nowrap}
+  .wordmark span{color:var(--blue);font:400 14px/1 "Courier Prime",monospace;letter-spacing:0}
+  .running{color:var(--ink-3);font:400 10px/1.4 "Courier Prime",monospace;letter-spacing:.15em;text-transform:uppercase}
+  .meta{justify-self:end;display:flex;align-items:center;gap:15px;color:var(--ink-3);font:400 10px/1.4 "Courier Prime",monospace;letter-spacing:.04em;white-space:nowrap}
+  .stamp{padding:4px 7px;border:1px solid var(--red);color:var(--red);font:700 9.5px/1 "Courier Prime",monospace;letter-spacing:.13em;text-transform:uppercase;transform:rotate(-1.5deg)}
+
+  .main{position:absolute;top:101px;left:48px;right:48px;height:380px;display:grid;grid-template-columns:minmax(0,1fr) 398px;gap:52px;align-items:start}
+  .title-block{padding-top:6px}
+  h1{margin:0;font:650 66px/.96 "Libre Franklin",Arial,sans-serif;letter-spacing:-.038em;text-wrap:balance}
+  .deck{max-width:535px;margin:22px 0 0;color:var(--ink-2);font-size:21px;line-height:1.45;text-wrap:pretty}
+  .facts{margin:20px 0 0;color:var(--ink-3);font:400 11px/1.6 "Courier Prime",monospace;letter-spacing:.08em;text-transform:uppercase}
+  .facts i{font-style:normal;padding:0 7px;color:var(--blue)}
+
+  figure{margin:0}
+  .plate{position:relative;padding:7px;border-top:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+  .plate::before,.plate::after{content:"";position:absolute;width:13px;height:13px;border-color:var(--blue);border-style:solid}
+  .plate::before{top:-1px;left:0;border-width:1px 0 0 1px}
+  .plate::after{right:0;bottom:-1px;border-width:0 1px 1px 0}
+  .term{border:1px solid var(--ink);background:var(--screen);color:var(--screen-ink);font:400 9.5px/1.38 "Courier Prime",monospace}
+  .tbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 9px;border-bottom:1px solid var(--screen-rule);color:var(--screen-dim);font-size:.94em}
+  .tbar b{color:var(--screen-ink);font-weight:400}
+  .tabs{display:flex;gap:0;padding:0 9px;border-bottom:1px solid var(--screen-rule);color:var(--screen-dim);font-size:.94em;white-space:nowrap}
+  .tabs span{padding:5px 7px 4px;border-bottom:2px solid transparent}
+  .tabs .on{border-bottom-color:var(--screen-ink);color:var(--screen-ink)}
+  .search{display:flex;align-items:center;gap:6px;margin:8px 9px;padding:5px 7px;border:1px solid var(--screen-rule);color:var(--screen-ink)}
+  .search span{color:var(--screen-dim)}
+  .cursor{width:5px;height:11px;background:var(--screen-ink)}
+  .rows{padding:0 9px 5px}
+  .group{margin:5px 0 2px;color:var(--screen-ink);font-weight:700}
+  .row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:3px 5px;color:var(--screen-dim)}
+  .row span:first-child{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--screen-ink)}
+  .row em{font-style:normal;color:var(--screen-dim)}
+  .row.sel{background:var(--screen-ink)}
+  .row.sel span,.row.sel em{color:var(--screen)}
+  .player{display:flex;align-items:center;gap:8px;padding:6px 9px;border-top:1px solid var(--screen-rule);color:var(--screen-dim);font-size:.94em;white-space:nowrap}
+  .player .bar{flex:1;height:2px;background:var(--screen-rule);overflow:hidden}
+  .player .bar b{display:block;width:44%;height:100%;background:var(--screen-ink)}
+  figcaption{display:flex;gap:10px;margin-top:8px;padding-top:7px;border-top:1px solid var(--blue);color:var(--ink-2);font-size:11.5px;line-height:1.45}
+  .fig-no{color:var(--blue);font:400 9px/1.5 "Courier Prime",monospace;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+  .fig-note{display:block;color:var(--ink-3);font-size:10.5px}
+
+  .command{position:absolute;top:503px;left:48px;right:48px;display:flex;align-items:center;gap:16px;padding:12px 0 11px;border-top:2px solid var(--ink);border-bottom:1px solid var(--ink)}
+  .prompt{color:var(--blue);font:700 18px/1.4 "Courier Prime",monospace}
+  .command code{color:var(--ink);font:400 17px/1.4 "Courier Prime",monospace;white-space:nowrap}
+  .command .tag{margin-left:auto;color:var(--ink-3);font:400 10px/1.4 "Courier Prime",monospace;letter-spacing:.11em;text-align:right;text-transform:uppercase;white-space:nowrap}
+  .footer{position:absolute;left:48px;right:48px;bottom:24px;display:flex;align-items:baseline;justify-content:space-between;gap:20px;color:var(--ink-3);font:400 10px/1.5 "Courier Prime",monospace;letter-spacing:.03em}
+  .footer b{font-weight:400;color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="header">
+    <div class="wordmark">ytmusic-tui<span>(1)</span></div>
+    <div class="running">User Commands</div>
+    <div class="meta"><span>v0.3.1</span><span>MIT</span><span class="stamp">Pre-1.0</span></div>
+  </header>
+
+  <main class="main">
+    <div class="title-block">
+      <h1>YouTube Music,<br>in your terminal.</h1>
+      <p class="deck">A fast, keyboard-first YouTube Music client. Search anonymously, play through mpv, and keep the library on your own disk.</p>
+      <p class="facts">No account<i>·</i>No telemetry<i>·</i>Local library</p>
+    </div>
+
+    <figure>
+      <div class="plate">
+        <div class="term" aria-hidden="true">
+          <div class="tbar"><b>ytmusic-tui 0.3.1</b><span>Busca</span><span>F1 Ajuda</span></div>
+          <div class="tabs"><span>Playlists</span><span class="on">Busca</span><span>Biblioteca</span><span>Downloads</span></div>
+          <div class="search"><span>&gt;</span> my dear melancholy <span class="cursor"></span></div>
+          <div class="rows">
+            <div class="group">Músicas</div>
+            <div class="row"><span>I Was Never There <em>– The Weeknd, Gesaffelstein</em></span><span>4:02</span></div>
+            <div class="row"><span>Try Me <em>– The Weeknd</em></span><span>3:42</span></div>
+            <div class="row sel"><span>Wasted Times <em>– The Weeknd</em></span><span>3:41</span></div>
+            <div class="row"><span>Privilege <em>– The Weeknd</em></span><span>2:51</span></div>
+            <div class="group">Álbuns</div>
+            <div class="row"><span>My Dear Melancholy, <em>– The Weeknd</em></span><span>EP, 2018</span></div>
+          </div>
+          <div class="player"><span>|&lt; &gt; &gt;|</span><span>0:00</span><span class="bar"><b></b></span><span>vol 70%</span></div>
+        </div>
+      </div>
+      <figcaption><span class="fig-no">Fig. 1</span><span>The <em>Busca</em> search tab in a 100×30 terminal.<span class="fig-note">Illustration, not a screenshot. Colours follow the terminal theme.</span></span></figcaption>
+    </figure>
+  </main>
+
+  <div class="command">
+    <span class="prompt">$</span>
+    <code>pipx install git+https://github.com/pr0sthetics/ytmusic-tui</code>
+    <span class="tag">Linux · Python 3.11–3.13</span>
+  </div>
+
+  <footer class="footer">
+    <span>No cookies, analytics or external requests. <b>Set in Libre Franklin, Source Serif 4 and Courier Prime.</b></span>
+    <span>github.com/pr0sthetics/ytmusic-tui</span>
+  </footer>
+</div>
+</body>
+</html>

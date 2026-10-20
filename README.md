@@ -2,6 +2,8 @@
 
 A **minimalist, fast and lightweight TUI client** for YouTube Music, right in your terminal: search, playback (mpv), music and album downloads (yt-dlp + ffmpeg), a local library and local playlists — **no Google account needed**.
 
+**Website:** <https://pr0sthetics.github.io/ytmusic-tui/>
+
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Tests](https://img.shields.io/badge/tests-637%20passing-brightgreen)

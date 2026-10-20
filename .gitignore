@@ -166,8 +166,8 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
+# local design tooling
+.impeccable/
 
 # mypy
 .mypy_cache/

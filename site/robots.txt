@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://pr0sthetics.github.io/ytmusic-tui/sitemap.xml

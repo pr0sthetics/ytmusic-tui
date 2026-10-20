@@ -73,6 +73,9 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ### Documentado
 
+- **Site oficial:** página estática em `site/` redesenhada como manual
+  impresso (papel, azul de impressão e tipografia própria) e publicada via
+  GitHub Pages com workflow dedicado. Sem mudanças no app.
 - README: contagem de testes e limitações de temas corrigidas (tema vale
   por sessão; "custom themes" segue no roadmap).
 - Governança interna do ciclo: o plano de engenharia anterior vira
