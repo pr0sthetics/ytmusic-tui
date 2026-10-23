@@ -6,6 +6,8 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.3.2] - 2026-10-22
+
 ### Corrigido
 
 - **Downloads (A01):** a tabela não perde mais a seleção a cada 0,5 s — as

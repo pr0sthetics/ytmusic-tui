@@ -1,6 +1,6 @@
 [project]
 name = "ytmusic-tui"
-version = "0.3.1"
+version = "0.3.2"
 description = "Cliente TUI minimalista e rápido para YouTube Music"
 readme = "README.md"
 requires-python = ">=3.11"
