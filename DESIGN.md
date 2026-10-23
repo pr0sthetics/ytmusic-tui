@@ -4,14 +4,12 @@ description: A terminal-first YouTube Music client documented as a printed field
 colors:
   paper: "#f1eee5"
   paper-shade: "#e9e5d9"
-  paper-deep: "#e2ded2"
   ink: "#191813"
   ink-muted: "#4d4a41"
   ink-faint: "#696459"
   printer-blue: "#1d4c8c"
   oxblood: "#9b3428"
-  rule: "rgba(25, 24, 19, 0.22)"
-  rule-strong: "rgba(25, 24, 19, 0.55)"
+  rule: "#19181338"
   terminal-black: "#12110f"
   terminal-raised: "#1a1916"
   terminal-ink: "#e8e3d7"
@@ -27,6 +25,7 @@ typography:
     fontWeight: 650
     lineHeight: 0.95
     letterSpacing: "-0.035em"
+    wordSpacing: "0.09em"
   headline:
     fontFamily: "Libre Franklin, Franklin Gothic Medium, Arial Narrow, Arial, sans-serif"
     fontSize: "clamp(1.35rem, 2.3vw, 1.8rem)"
@@ -147,7 +146,7 @@ The voice is plain, dry and specific. The page states what the client does, what
 The result should feel like a well-made manual someone kept on a desk: legible, opinionated, slightly inky, and easy to use. It should never feel like a themed component library.
 
 **Key Characteristics:**
-- Warm paper, black ink, one printer's blue and one oxblood accent.
+- Uncoated paper, black ink, one printer's blue and one oxblood accent.
 - A three-family type system: grotesque display, bookish serif body, typewriter labels and commands.
 - Rules and margin notes do the work that cards and shadows do elsewhere.
 - A single terminal plate is the visual proof-of-surface; it is labelled an illustration, not a screenshot.
@@ -159,7 +158,7 @@ A paper-and-ink palette with a printer's blue for marks and an oxblood red for l
 
 ### Primary
 - **Printer's Blue** (#1d4c8c): links, section labels, key-group headings, copy controls, focus rings, selection and the registration corners of the terminal plate. It is a mark, never a large fill.
-- **Paper** (#f1eee5): the page ground. **Paper Shade** (#e9e5d9) is used for command plates, code plates and the colophon; **Paper Deep** (#e2ded2) is the third tonal step.
+- **Paper** (#f1eee5): the page ground. **Paper Shade** (#e9e5d9) is used for command plates, code plates and the colophon.
 
 ### Secondary
 - **Oxblood** (#9b3428): the stamp border and text, and the small rule beside each caveat. It appears only where the manual marks a limit.
@@ -168,7 +167,7 @@ A paper-and-ink palette with a printer's blue for marks and an oxblood red for l
 - **Ink** (#191813): body and display text.
 - **Ink Muted** (#4d4a41): secondary prose and notes.
 - **Ink Faint** (#696459): section captions, metadata and fine print. The lowest measured pair, Ink Faint on Paper, is 5.07:1.
-- **Rule** (`rgba(25, 24, 19, 0.22)`) and **Rule Strong** (`rgba(25, 24, 19, 0.55)`): hairline dividers and emphasis rules.
+- **Rule** (`#19181338`, Ink at 22%): hairline dividers. Emphasis rules use Ink at full strength.
 
 ### Terminal
 - **Terminal Black** (#12110f) and **Terminal Raised** (#1a1916): the plate ground.
@@ -190,10 +189,10 @@ A paper-and-ink palette with a printer's blue for marks and an oxblood red for l
 
 **Character:** A tight American grotesque for the headline, a bookish serif for reading, and a typewriter face for anything that belongs in a terminal. The pairing is deliberately institutional: a manual, not a magazine.
 
-Source Serif 4 is self-hosted as static 400 normal, 600 normal and 400 italic instances; the optical-size axis is baked at 18 for body, 14 for the small 600 and 15 for italic. This keeps the font payload around 124 KB while preserving the family and weights. It is an implementation detail, not permission to substitute another serif.
+Source Serif 4 is self-hosted as static 400 normal, 600 normal and 400 italic instances; the optical-size axis is baked at 18 for body, 14 for the small 600 and 15 for italic. This keeps the font payload around 86 KB while preserving the family and weights. It is an implementation detail, not permission to substitute another serif.
 
 ### Hierarchy
-- **Display** (650, `clamp(2.65rem, 6.4vw, 5.3rem)`, 0.95, -0.035em): the hero title only. Maximum 14ch; balance the lines.
+- **Display** (650, `clamp(2.65rem, 6.4vw, 5.3rem)`, 0.95, -0.035em, word-spacing 0.09em): the hero title only. Maximum 14ch; balance the lines.
 - **Headline** (550, `clamp(1.35rem, 2.3vw, 1.8rem)`, 1.35, -0.02em): Libre Franklin section leads. Maximum 40ch.
 - **Title** (650, 17px, 1.3, -0.01em): principle headings, caveat titles and small display emphasis.
 - **Deck** (400, `clamp(1.08rem, 1.45vw, 1.3rem)`, 1.55): the Source Serif hero deck; maximum 47ch.
@@ -218,11 +217,13 @@ The running head is a three-part line: wordmark, section context and version/dat
 
 Responsive behavior is part of the grammar, not a separate layout:
 - At 1120px the gutter tightens and the margin column narrows to 156px.
-- At 940px the header switches to the "Contents" disclosure, the running date is hidden and the hero margin moves below the copy.
+- At 940px the header switches to the "Contents" disclosure, the running date is hidden and the hero margin note is removed.
 - At 760px the page body drops to 17px, the hero lower grid stacks, the repository link is hidden and the two-column sections become one column.
 - At 600px and 390px the plates, key lists and controls collapse without horizontal scrolling.
 
 The page has been checked from 320px to 1920px with no horizontal overflow. Preserve the 68ch measure and the 40ch section-lead cap; do not let display type run wider than its measure.
+
+Print is a first-class target: A4, white paper, hidden chrome and controls, one-column sections, a two-column principles/key layout, and a three-column colophon that starts on its own page. The terminal specimen prints in black and white.
 
 ### Named Rules
 **The First-Viewport Rule.** The headline, deck, synopsis command, Copy control and the single primary installation action must be visible before the terminal plate. Do not push the install path below the fold.
@@ -231,7 +232,7 @@ The page has been checked from 320px to 1920px with no horizontal overflow. Pres
 
 The page is flat by doctrine. Depth comes from paper tone, hairline rules, the 4.5% fixed grain overlay and the printed terminal specimen, not from cards or glows. The terminal plate has a 9px frame, top and bottom rules, and 14px blue registration corners; it reads as an inserted printed plate.
 
-The only functional shadow is the mobile contents dropdown (`0 14px 28px rgba(25, 24, 19, 0.14)`). It exists to separate the overlay from the page, not to decorate it. Do not add card shadows, glass, blur, gradient text or faux-3D layers.
+The only functional shadow is the mobile contents dropdown (`0 14px 28px #19181324`). It exists to separate the overlay from the page, not to decorate it. Do not add card shadows, glass, blur, gradient text or faux-3D layers.
 
 ### Named Rules
 **The Flat-By-Default Rule.** Surfaces are flat at rest. The mobile contents dropdown is the only shadow in the system.
@@ -247,11 +248,13 @@ Focus is a 2px Printer's Blue outline with 3px offset. The skip link becomes vis
 
 ## Components
 
+**Wordmark.** The visible `ytmusic-tui(1)` label is the accessible name of the home link. A visually hidden `home` qualifies the destination without replacing the visible label, so the accessible name still contains the visible text (WCAG 2.5.3, Label in Name).
+
 **Primary button.** Ink fill, Paper text, Courier Prime 11px uppercase, 10px × 13px padding, 1px Ink border, 18px top margin. Hover becomes Printer's Blue. There is one primary action per view.
 
 **Copy control.** A ghost Printer's Blue control at 6px × 8px outside the command plate; inside the synopsis it is filled blue at 7px × 10px. Hover inks it. Success changes the label to "COPIED" and shows the fixed ink toast; failure keeps the command selected and shows "Copy failed. The command is selected; copy it manually." The control is hidden without JavaScript, and the toast is an `aria-live="polite"` status.
 
-**Command plate.** Paper Shade ground, 1px Ink border, a three-column grid of blue prompt, command and Copy control. The command wraps with `overflow-wrap: anywhere`; the prompt is not selectable.
+**Command plate.** Paper Shade ground, 1px Ink border, a three-column grid of blue prompt, command and Copy control. The install URL and repository name stay unbroken and the line breaks after `github.com/`; the prompt is not selectable.
 
 **Code blocks.** Paper Shade ground, 1px Ink border, a small head with a mono label and a Copy control, and a 12px mono pre with horizontal scrolling for long commands.
 
@@ -263,14 +266,28 @@ Focus is a 2px Printer's Blue outline with 3px offset. The skip link becomes vis
 
 **Stamp.** A 1px oxblood border, 11px Courier Prime, 0.16em tracking, -1.5deg rotation, visible text "Pre-1.0". The text is the accessible name; do not put an `aria-label` on the generic span.
 
-**Keycaps.** 1px Ink border with a 2px bottom border, 2px radius, Paper ground, mono at 0.78em. Arrows and letters are text, not color-only icons.
+**Keycaps.** 1px Ink border with a 2px bottom border, 2px radius, Paper ground, mono at 0.78em. Key names and letters are text, not color-only icons.
+
+## Weight budget
+
+The site ships pre-built and self-contained. These are the measured raw file sizes of the shipped page.
+
+| Asset | Budget | Shipped |
+| --- | --- | --- |
+| HTML | 40 KB | 39,866 B |
+| CSS | 30 KB (revised) | 29,680 B |
+| JavaScript | 8 KB | 3,858 B |
+| Fonts | 120 KiB | 86,520 B |
+| Page (initial load) | 350 KB | 159,924 B |
+
+The CSS ceiling was revised from 25 KB to 30 KB after the final audit. The served stylesheet is 29,680 B minified (6,931 B gzip), within the revised ceiling. The original 25 KB target was only reachable by obfuscating all class names and custom properties and stripping redundant `@font-face` syntax; that variant measured 24,788 B, but it would make the HTML, CSS and JavaScript unreadable, so the readable stylesheet and the print/responsive layers were kept. A coverage audit finds 93% of it used on screen; the remainder is the print block and roughly 600 B of reduced-motion, focus and WebKit-only selectors that a screen audit cannot observe. HTML, JavaScript, fonts and total page weight are within budget.
 
 ## Do's and Don'ts
 
 **Do**
 - Keep the printed-manual grammar: rules, margin labels, hanging notes, paper tones and the one dark specimen.
 - Keep the first-viewport promise: headline, deck, synopsis command, Copy and the single primary installation action.
-- Use the token values in this file; the CSS custom properties in `site/assets/styles.css` are the source of truth.
+- Use the token values in this file; the CSS custom properties in `site/assets/styles.src.css` are the source of truth.
 - Keep the site static and self-contained: no build step, no external requests, no cookies, analytics, `localStorage` or service worker.
 - Write English site copy. Portuguese belongs to the app strings inside the terminal and interface illustrations.
 - Keep every product claim verifiable in `README.md`, `pyproject.toml` or the release notes. No invented user counts, testimonials, benchmarks, press, pricing, PyPI listing or platform support.

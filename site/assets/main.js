@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  document.documentElement.classList.add("js");
+
   var toast = document.querySelector(".copy-toast");
   var toastTimer = 0;
 

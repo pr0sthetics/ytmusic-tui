@@ -1,6 +1,6 @@
 # ytmusic-tui — official site
 
-Static, one-page site for [ytmusic-tui](https://github.com/pr0sthetics/ytmusic-tui). No build step, no runtime dependencies, no external requests. The design is a printed Unix field manual: cool paper, black ink, printer's blue rules and an oxblood stamp for caveats.
+Static, one-page site for [ytmusic-tui](https://github.com/pr0sthetics/ytmusic-tui). It ships pre-built: no build step is needed to preview or deploy. No runtime dependencies, no external requests. The design is a printed Unix field manual: uncoated paper, black ink, printer's blue rules and an oxblood stamp for caveats.
 
 ## Preview locally
 
@@ -17,6 +17,16 @@ Then open <http://localhost:8000/>. Opening `site/index.html` directly from the 
 the HTTP server for the intended Libre Franklin, Source Serif 4 and Courier Prime
 typography; Firefox may load the local fonts from `file://`.
 
+## Editing styles
+
+`assets/styles.src.css` is the readable source. `assets/styles.css` is the minified file the page loads; regenerate it after any style edit:
+
+```bash
+npx --yes csso-cli site/assets/styles.src.css --output site/assets/styles.css
+```
+
+The minified file is committed, so previewing and deploying still require no build step.
+
 ## Publish to GitHub Pages
 
 The site is deployed by [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) with GitHub Actions. One-time setup:
@@ -30,7 +40,7 @@ Do **not** switch the Pages source to a branch folder: GitHub only accepts `/` (
 
 ## Domain placeholders
 
-The current canonical URL is a placeholder: **`https://pr0sthetics.github.io/ytmusic-tui/`**. Replace it everywhere listed below if the site moves to a custom domain, or if the repository is renamed. The README is the single reference for this list.
+The production canonical URL is **`https://pr0sthetics.github.io/ytmusic-tui/`**. Update it everywhere listed below if the site moves to a custom domain, or if the repository is renamed. The README is the single reference for this list.
 
 - `index.html` — `<link rel="canonical">`
 - `index.html` — `og:url`
@@ -77,7 +87,8 @@ Keep the PNG under 300 KB. `assets/og.source.html` is not linked from the page a
 site/
 ├── index.html
 ├── assets/
-│   ├── styles.css
+│   ├── styles.css        # served, minified
+│   ├── styles.src.css    # editable source
 │   ├── main.js
 │   ├── favicon.svg
 │   ├── apple-touch-icon.png
@@ -104,8 +115,10 @@ site/
 - Light-only, `color-scheme: light`; no cookies, analytics, `localStorage`, service worker, forms or external requests.
 - JavaScript is progressive enhancement only: the copy buttons, copy toast and copy-failure text selection. All content, the FAQ, the disclosures and both mockups work with JS disabled.
 - `prefers-reduced-motion: reduce` disables the cursor blink, smooth scrolling and transitions.
+- The home wordmark keeps the visible `ytmusic-tui(1)` label in its accessible name; a visually hidden `home` only qualifies the destination (WCAG 2.5.3).
+- The served CSS is 29,680 B minified (6,931 B gzip), within the revised 30 KB ceiling recorded in `../DESIGN.md`. The original 25 KB target was not kept because meeting it required obfuscating all class names and custom properties.
 - The mockups are HTML/CSS illustrations, labelled as such. They are not screenshots.
-- Fonts are self-hosted Libre Franklin, Source Serif 4 and Courier Prime under the SIL Open Font License; each license is included in `assets/fonts/`. Source Serif 4 ships as static 400/600 and italic 400 instances subset to the current site copy for payload (generated with fonttools); regenerate them from the upstream variable font if new copy needs glyphs outside the subset.
+- Fonts are self-hosted Libre Franklin, Source Serif 4 and Courier Prime under the SIL Open Font License; each license is included in `assets/fonts/`. Source Serif 4 ships as static 400/600 and italic 400 instances subset to the current site copy for payload (generated with fonttools); regenerate them from the upstream variable font if new copy needs glyphs outside the subset. Keycaps use words such as `Right`/`Left` and `Shift+Up`/`Shift+Down` instead of arrow glyphs, which are outside the subsets.
 - The page keeps a skip link, visible focus rings, semantic figures with text captions, and a keyboard-operable contents menu at narrow widths.
 
 ## License

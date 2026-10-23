@@ -70,7 +70,7 @@
   <header class="masthead">
     <div class="page-width">
       <div class="running-head">
-        <a class="wordmark" href="#top" aria-label="ytmusic-tui home">ytmusic-tui<span class="wordmark-sect">(1)</span></a>
+        <a class="wordmark" href="#top">ytmusic-tui<span class="wordmark-sect">(1)</span><span class="sr-only"> home</span></a>
         <p class="running-title">User Commands</p>
         <div class="running-meta">
           <a class="version" href="https://github.com/pr0sthetics/ytmusic-tui/releases/tag/v0.3.1" target="_blank" rel="noopener noreferrer">v0.3.1 <span class="version-date">· 2026-10-19</span><span class="sr-only"> release notes (opens in a new tab)</span></a>
@@ -116,7 +116,7 @@
         <div class="hero-lower">
           <div class="hero-intro">
             <p class="hero-deck">A fast, keyboard-first YouTube Music client. Search anonymously, play through mpv, download with yt-dlp, and keep the library on your own disk.</p>
-            <p class="hero-facts">No account <span aria-hidden="true">·</span> No telemetry <span aria-hidden="true">·</span> MIT licensed</p>
+            <p class="hero-facts">No account <span aria-hidden="true">·</span> No telemetry <span aria-hidden="true">·</span> MIT&nbsp;licensed</p>
             <a class="text-link" href="https://github.com/pr0sthetics/ytmusic-tui" target="_blank" rel="noopener noreferrer">GitHub repository<span class="sr-only"> (opens in a new tab)</span></a>
           </div>
 
@@ -127,7 +127,7 @@
             </div>
             <div class="cmdline">
               <span class="prompt" aria-hidden="true">$</span>
-              <code id="hero-install-command">pipx install git+https://github.com/<wbr><span class="cmd-name">pr0sthetics/ytmusic-tui</span></code>
+              <code id="hero-install-command">pipx install <span class="cmd-url">git+https://github.com/</span><wbr><span class="cmd-name">pr0sthetics/ytmusic-tui</span></code>
               <button class="copy" type="button" data-copy-target="hero-install-command" data-copy-label="install command" aria-label="Copy install command" hidden>Copy</button>
             </div>
             <p class="require-line">Requires <strong>mpv with libmpv</strong>; <strong>ffmpeg</strong> is required for downloads.</p>
@@ -180,7 +180,7 @@
               </div>
             </div>
           </div>
-      <figcaption><span class="fig-label">Fig. 1</span><span class="fig-copy">The <em>Busca</em> (search) tab in a 100×30 terminal. <span class="fig-note">Illustration, not a screenshot. Colours follow the terminal theme.</span></span></figcaption>
+      <figcaption><span class="fig-label">Fig. 1</span><span class="fig-copy">The <em lang="pt-BR">Busca</em> (search) tab in a 100×30 terminal. <span class="fig-note">Illustration, not a screenshot. Colours follow the terminal theme.</span></span></figcaption>
         </figure>
       </div>
     </section>
@@ -250,7 +250,7 @@
             </div>
             <div>
               <dt>Themes and diagnostics</dt>
-              <dd>Switch Textual themes from the command palette. Run <code>ytmusic-tui doctor</code> for a masked, paste-ready environment report.</dd>
+              <dd>Switch Textual themes from the command palette. Run <code class="nowrap">ytmusic-tui doctor</code> for a masked, paste-ready environment report.</dd>
             </div>
           </dl>
           <p class="aside">Video results play and download as audio; there is no video image. Adding a track to a playlist from search requires that track to be downloaded first.</p>
@@ -273,7 +273,7 @@
                 <div><dt><kbd>Ctrl+L</kbd></dt><dd>Library</dd></div>
                 <div><dt><kbd>Enter</kbd></dt><dd>Play track / open album</dd></div>
                 <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
-                <div><dt><kbd>→</kbd> <span>/</span> <kbd>←</kbd></dt><dd>Next / previous</dd></div>
+                <div><dt><kbd>Right</kbd> <span>/</span> <kbd>Left</kbd></dt><dd>Next / previous</dd></div>
                 <div><dt><kbd>Ctrl+D</kbd></dt><dd>Download now playing</dd></div>
                 <div><dt><kbd>Esc</kbd></dt><dd>Back one level</dd></div>
                 <div><dt><kbd>Ctrl+Q</kbd></dt><dd>Quit</dd></div>
@@ -288,7 +288,7 @@
                 <div><dt><kbd>Shift+P</kbd></dt><dd>Add album to playlist</dd></div>
                 <div><dt><kbd>N</kbd> <span>/</span> <kbd>E</kbd></dt><dd>New / rename playlist</dd></div>
                 <div><dt><kbd>Delete</kbd></dt><dd>Delete playlist or remove track</dd></div>
-                <div><dt><kbd>Shift+↑</kbd> <span>/</span> <kbd>Shift+↓</kbd></dt><dd>Reorder a track</dd></div>
+                <div><dt><kbd>Shift+Up</kbd> <span>/</span> <kbd>Shift+Down</kbd></dt><dd>Reorder a track</dd></div>
                 <div><dt><kbd>L</kbd></dt><dd>Like / unlike a local track</dd></div>
               </dl>
             </section>
@@ -338,7 +338,7 @@
                 </div>
               </div>
             </div>
-            <figcaption><span class="fig-label">Fig. 2</span><span class="fig-copy">Downloads, with progress, queue and a failure that stays visible. <span class="fig-note">Progress values are illustrative.</span></span></figcaption>
+            <figcaption><span class="fig-label">Fig. 2</span><span class="fig-copy">Downloads, with progress, queue and a failure that stays visible. <span class="fig-note">Progress values are illustrative; key hints are shortened for the plate.</span></span></figcaption>
           </figure>
         </div>
       </div>
@@ -396,7 +396,7 @@
                         <button class="copy" type="button" data-copy-label="openSUSE dependencies command" aria-label="Copy openSUSE dependencies command" hidden>Copy</button>
                       </div>
                     </div>
-                    <p class="note">macOS is a community path, not officially supported. It may work with <code>brew install mpv ffmpeg python</code>; nothing is promised. Windows native is not supported; WSL2 is untested.</p>
+                    <p class="note">macOS is a community path, not officially supported. It may work with <code class="nowrap">brew install mpv ffmpeg python</code>; nothing is promised. Windows native is not supported; WSL2 is untested.</p>
                   </div>
                 </details>
               </div>
@@ -433,7 +433,7 @@ python3 -m venv .venv
                         <button class="copy" type="button" data-copy-label="source installation commands" aria-label="Copy source installation commands" hidden>Copy</button>
                       </div>
                     </div>
-                    <p class="note">On externally managed Python installs (Debian 12+, Ubuntu 23.04+, Mint, LMDE), pip refuses <code>--user</code>. Use pipx or a venv.</p>
+                    <p class="note">On externally managed Python installs (Debian 12+, Ubuntu 23.04+, Mint, LMDE), pip refuses <code class="nowrap">--user</code>. Use pipx or a venv.</p>
                   </div>
                 </details>
               </div>
@@ -450,7 +450,7 @@ python3 -m venv .venv
 ytmusic-tui doctor</code></pre>
                 </div>
                 <p class="note"><code>--version</code> prints the installed version; <code>doctor</code> checks the environment without opening the interface.</p>
-                <p class="note tip">Updating later: <code>pipx upgrade ytmusic-tui</code></p>
+                <p class="note tip">Updating later: <code class="nowrap">pipx upgrade ytmusic-tui</code></p>
                 <p class="full-guide"><a class="text-link" href="https://github.com/pr0sthetics/ytmusic-tui#-installation" target="_blank" rel="noopener noreferrer">Read the full installation guide<span class="sr-only"> (opens in a new tab)</span></a></p>
               </div>
             </li>
@@ -476,7 +476,7 @@ ytmusic-tui doctor</code></pre>
               <dd>Local library and playlists, stored as SQLite. Likes are local and apply to downloaded tracks.</dd>
             </div>
             <div>
-              <dt><code>~/Music/YouTube Music/</code></dt>
+              <dt><code class="nowrap">~/Music/YouTube Music/</code></dt>
               <dd>Downloads by default: tagged files with embedded cover art, organised by album plus standalone tracks.</dd>
             </div>
             <div>
@@ -573,15 +573,15 @@ ytmusic-tui doctor</code></pre>
             </details>
             <details>
               <summary>Where does my data live?</summary>
-              <div class="answer"><p>Everything stays on your machine: config in <code>~/.config/ytmusic-tui/</code>, library in <code>~/.local/share/ytmusic-tui/library.db</code>, downloads in <code>~/Music/YouTube Music/</code> by default, logs in <code>~/.local/state/ytmusic-tui/</code>.</p></div>
+              <div class="answer"><p>Everything stays on your machine: config in <code>~/.config/ytmusic-tui/</code>, library in <code>~/.local/share/ytmusic-tui/library.db</code>, downloads in <code class="nowrap">~/Music/YouTube Music/</code> by default, logs in <code>~/.local/state/ytmusic-tui/</code>.</p></div>
             </details>
             <details>
               <summary>Does it work on macOS or Windows?</summary>
-              <div class="answer"><p>Linux is the validated platform. macOS is a community path (<code>brew install mpv ffmpeg python</code>) with nothing promised. Windows is not officially supported; WSL2 is untested.</p></div>
+              <div class="answer"><p>Linux is the validated platform. macOS is a community path (<code class="nowrap">brew install mpv ffmpeg python</code>) with nothing promised. Windows is not officially supported; WSL2 is untested.</p></div>
             </details>
             <details>
               <summary>How do I update?</summary>
-              <div class="answer"><p><code>pipx upgrade ytmusic-tui</code>. If the version does not move (installs follow the default branch), force a fresh install: <code>pipx install --force git+https://github.com/<wbr>pr0sthetics/ytmusic-tui</code>. Pin a tag to downgrade.</p></div>
+              <div class="answer"><p><code class="nowrap">pipx upgrade ytmusic-tui</code>. If the version does not move (installs follow the default branch), force a fresh install: <code>pipx install --force git+https://github.com/<wbr>pr0sthetics/ytmusic-tui</code>. Pin a tag to downgrade.</p></div>
             </details>
             <details>
               <summary>Can I change the theme?</summary>
@@ -609,7 +609,7 @@ ytmusic-tui doctor</code></pre>
       </div>
       <div class="colophon-grid">
         <div class="colophon-brand">
-          <a class="wordmark" href="#top" aria-label="ytmusic-tui home">ytmusic-tui<span class="wordmark-sect">(1)</span></a>
+          <a class="wordmark" href="#top">ytmusic-tui<span class="wordmark-sect">(1)</span><span class="sr-only"> home</span></a>
           <p>A terminal client for YouTube Music. Local library, anonymous search, no browser runtime.</p>
           <p class="colophon-version">v0.3.1 · 2026-10-19</p>
         </div>
