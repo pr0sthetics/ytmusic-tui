@@ -9,7 +9,7 @@ from ytmusic_tui.api.models import Track
 from ytmusic_tui.config import settings
 from ytmusic_tui.library.errors import AudioFileMissingError, describe_library_error
 from ytmusic_tui.library.models import Track as LibraryTrack
-from ytmusic_tui.player import TrackInfo, player
+from ytmusic_tui.player import PlayerState, TrackInfo, player
 from ytmusic_tui.tui.messages import (
     NO_TRACK_PLAYING,
     TRACK_WITHOUT_VIDEO_ID,
@@ -55,10 +55,21 @@ class PlaybackController:
         def _library_visible_tracks(self) -> list[LibraryTrack]: ...
         def _playlist_visible_tracks(self) -> list[LibraryTrack]: ...
 
+    #: A partir desta posição, o ``←`` reinicia a faixa em vez de voltar
+    #: (Fase 2/P02): é o gesto que o usuário espera de um player de música.
+    RESTART_THRESHOLD = 3.0
+
     # ===== Ações do player (atalhos e botões) =====
 
     def action_play_pause(self) -> None:
-        """Alterna play/pause."""
+        """Alterna play/pause; parado, retoma a faixa atual da fila.
+
+        Depois de ``x`` (stop) ou do fim da fila, o ``Espaço`` volta a tocar
+        a faixa atual em vez de ligar um player sem faixa carregada.
+        """
+        if player.state is PlayerState.STOPPED:
+            self._play_current()
+            return
         player.toggle_pause()
 
     def action_next(self) -> None:
@@ -66,8 +77,27 @@ class PlaybackController:
         player.next_track()
 
     def action_previous(self) -> None:
-        """Faixa anterior."""
+        """Faixa anterior — ou reinício, se a atual já passou do limiar.
+
+        Tocar ``←`` depois de alguns segundos reinicia a faixa (a intenção
+        de "de novo"); no começo dela, o gesto é voltar. Na primeira faixa
+        da fila, voltar significa reiniciar — a fila já trata isso.
+        """
+        if (
+            self.queue.current is not None
+            and player.get_position() > self.RESTART_THRESHOLD
+            and player.seek(0.0)
+        ):
+            return
         player.previous_track()
+
+    def action_stop(self) -> None:
+        """Para a reprodução mantendo a fila (tecla ``x``).
+
+        A fila fica intacta: o ``Espaço`` retoma a faixa atual e ``→``/``←``
+        continuam valendo — parar não é limpar.
+        """
+        player.stop()
 
     # ===== Seek, volume e mute (Fase 2/P02) =====
 

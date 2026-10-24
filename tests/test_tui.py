@@ -48,7 +48,7 @@ from ytmusic_tui.library.models import Album as DbAlbum
 from ytmusic_tui.library.models import Track as DbTrack
 from ytmusic_tui.library.recovery import ReconciliationReport
 from ytmusic_tui.library.service import AlbumPlaylistResult, LibraryAlbum
-from ytmusic_tui.player import PlayerEvent, TrackInfo, player
+from ytmusic_tui.player import PlayerEvent, PlayerState, TrackInfo, player
 from ytmusic_tui.tui import download_controller, library_controller
 from ytmusic_tui.tui.app import MainScreen, PlayerEventMessage, YTMusicTUI
 from ytmusic_tui.tui.dialogs import (
@@ -4403,6 +4403,133 @@ async def test_ajuda_lista_as_teclas_novas():
         assert "Aumentar volume" in texto
         assert "Diminuir volume" in texto
         assert "Mudo" in texto
+
+
+# ===== Fase 2/P03: parar e o gesto de "anterior" =====
+
+
+def _fila_de_teste(app, *, start: int = 0, quantos: int = 3):
+    """Fila de teste na tela, com títulos previsíveis.
+
+    Tira o foco do campo de busca: um ``Input`` com foco consome ``←`` para
+    mover o cursor, e o atalho de "anterior" nunca chegaria ao binding.
+    """
+    screen = app.screen
+    screen.queue.set_items(
+        [
+            QueueItem(info=TrackInfo(video_id=f"v{number}", title=f"F{number}"))
+            for number in range(quantos)
+        ],
+        start=start,
+    )
+    screen.query_one("#search-songs", SongListView).focus()
+    return screen
+
+
+@pytest.mark.asyncio
+async def test_x_para_sem_limpar_a_fila(monkeypatch):
+    """P03: ``x`` para a reprodução e a fila continua inteira."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=1)
+        parados: list[bool] = []
+        monkeypatch.setattr(player, "stop", lambda: parados.append(True))
+
+        await pilot.press("x")
+
+        assert parados == [True]
+        assert [item.info.title for item in screen.queue.items] == ["F0", "F1", "F2"]
+        assert screen.queue.index == 1
+
+
+@pytest.mark.asyncio
+async def test_anterior_reinicia_depois_do_limiar(monkeypatch):
+    """P03: passados 3 s, ``←`` reinicia em vez de voltar."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        _fila_de_teste(app, start=2)
+        seeks: list[float] = []
+        anteriores: list[bool] = []
+        monkeypatch.setattr(player, "get_position", lambda: 10.0)
+        monkeypatch.setattr(player, "seek", lambda position: seeks.append(position) or True)
+        monkeypatch.setattr(player, "previous_track", lambda: anteriores.append(True))
+
+        await pilot.press("left")
+
+        assert seeks == [0.0]
+        assert anteriores == []
+
+
+@pytest.mark.asyncio
+async def test_anterior_volta_dentro_do_limiar(monkeypatch):
+    """P03: no começo da faixa, ``←`` volta de verdade."""
+    played: list[TrackInfo] = []
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=2)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+        monkeypatch.setattr(player, "get_position", lambda: 1.0)
+        monkeypatch.setattr(
+            player,
+            "previous_track",
+            lambda: app._on_player_event(PlayerEvent(event="previous", data={})),
+        )
+
+        await pilot.press("left")
+
+        assert [info.video_id for info in played] == ["v1"]
+        assert screen.queue.index == 1
+
+
+@pytest.mark.asyncio
+async def test_anterior_na_primeira_faixa_reinicia(monkeypatch):
+    """P03: sem faixa anterior, ``←`` reinicia a atual (a fila já faz isso)."""
+    played: list[TrackInfo] = []
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=0)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+        monkeypatch.setattr(player, "get_position", lambda: 0.0)
+        monkeypatch.setattr(
+            player,
+            "previous_track",
+            lambda: app._on_player_event(PlayerEvent(event="previous", data={})),
+        )
+
+        await pilot.press("left")
+
+        assert [info.video_id for info in played] == ["v0"]
+        assert screen.queue.index == 0
+
+
+@pytest.mark.asyncio
+async def test_espaco_parado_retoma_e_tocando_pausa(monkeypatch):
+    """P03: parado, ``Espaço`` retoma a faixa atual; tocando, pausa."""
+    played: list[TrackInfo] = []
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=1)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+        monkeypatch.setattr(player, "_state", PlayerState.STOPPED)
+        await pilot.press("space")
+        assert [info.video_id for info in played] == ["v1"]
+
+        pausas: list[bool] = []
+        monkeypatch.setattr(player, "_state", PlayerState.PLAYING)
+        monkeypatch.setattr(player, "toggle_pause", lambda: pausas.append(True))
+        await pilot.press("space")
+
+        assert pausas == [True]
+        assert [info.video_id for info in played] == ["v1"]
 
 
 if __name__ == "__main__":

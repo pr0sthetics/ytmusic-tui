@@ -138,6 +138,7 @@ class MainScreen(
         Binding("plus,equals_sign", "volume_up", "Aumentar volume"),
         Binding("minus", "volume_down", "Diminuir volume"),
         Binding("m", "mute", "Mudo"),
+        Binding("x", "stop", "Parar"),
         Binding("ctrl+d", "download", "Baixar", priority=True),
         Binding("l", "like", "Curtir"),
         Binding("a", "download_album", "Baixar álbum"),
