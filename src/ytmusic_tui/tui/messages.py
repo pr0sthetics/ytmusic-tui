@@ -43,6 +43,12 @@ _KEY_NAMES = {
     "tab": "Tab",
     "backspace": "Backspace",
     "delete": "Delete",
+    # Fase 2/P02: nomes do Textual para as teclas de seek/volume.
+    "comma": ",",
+    "full_stop": ".",
+    "plus": "+",
+    "equals_sign": "+",
+    "minus": "-",
 }
 
 

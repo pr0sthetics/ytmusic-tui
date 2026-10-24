@@ -10,9 +10,14 @@ from ytmusic_tui.config import settings
 from ytmusic_tui.library.errors import AudioFileMissingError, describe_library_error
 from ytmusic_tui.library.models import Track as LibraryTrack
 from ytmusic_tui.player import TrackInfo, player
-from ytmusic_tui.tui.messages import TRACK_WITHOUT_VIDEO_ID, play_started, playback_error
+from ytmusic_tui.tui.messages import (
+    NO_TRACK_PLAYING,
+    TRACK_WITHOUT_VIDEO_ID,
+    play_started,
+    playback_error,
+)
 from ytmusic_tui.tui.queue import PlaybackQueue, QueueItem
-from ytmusic_tui.tui.widgets import SongListView
+from ytmusic_tui.tui.widgets import NowPlayingBar, SongListView
 
 
 def ensure_audio_file(track: LibraryTrack) -> None:
@@ -63,6 +68,54 @@ class PlaybackController:
     def action_previous(self) -> None:
         """Faixa anterior."""
         player.previous_track()
+
+    # ===== Seek, volume e mute (Fase 2/P02) =====
+
+    #: Passo do seek e do volume pelas teclas (segundos e pontos).
+    SEEK_STEP = 5.0
+    VOLUME_STEP = 5
+
+    def action_seek_backward(self) -> None:
+        """Retrocede 5 s (tecla ``,``)."""
+        self._seek_relative(-self.SEEK_STEP)
+
+    def action_seek_forward(self) -> None:
+        """Avança 5 s (tecla ``.``)."""
+        self._seek_relative(self.SEEK_STEP)
+
+    def _seek_relative(self, seconds: float) -> bool:
+        """Seek relativo com aviso quando não há faixa (P02)."""
+        if player.seek_relative(seconds):
+            return True
+        self._toast(NO_TRACK_PLAYING)
+        return False
+
+    def action_volume_up(self) -> None:
+        """Aumenta o volume em 5 pontos (tecla ``+``)."""
+        self._change_volume(self.VOLUME_STEP)
+
+    def action_volume_down(self) -> None:
+        """Diminui o volume em 5 pontos (tecla ``-``)."""
+        self._change_volume(-self.VOLUME_STEP)
+
+    def _change_volume(self, delta: int) -> int:
+        """Aplica o passo e espelha na barra na hora."""
+        volume = player.set_volume(player.get_volume() + delta)
+        self._sync_volume_bar(volume)
+        return volume
+
+    def action_mute(self) -> None:
+        """Alterna o mute (tecla ``m``)."""
+        player.toggle_mute()
+        self._sync_volume_bar(player.get_volume())
+
+    def _sync_volume_bar(self, volume: int) -> None:
+        """Atualiza o indicador de volume/mute da barra (P02)."""
+        try:
+            bar = self.query_one("#now-playing", NowPlayingBar)
+        except Exception:
+            return
+        bar.update_volume(volume, muted=player.is_muted())
 
     # ===== Conversões para TrackInfo =====
 

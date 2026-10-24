@@ -370,8 +370,14 @@ class NowPlayingBar(Static):
         )
 
     @staticmethod
-    def _volume_text(volume: int) -> str:
-        """Texto da barra de volume com ícone coerente (A16)."""
+    def _volume_text(volume: int, muted: bool = False) -> str:
+        """Texto da barra de volume com ícone coerente (A16/P02).
+
+        Mudo tem prioridade sobre o nível: mostrar ``🔊 70%`` com o áudio
+        mudo seria a barra mentindo, o mesmo defeito que o A16 corrigiu.
+        """
+        if muted:
+            return f"🔇 mudo {volume}%"
         icon = "🔇" if volume == 0 else "🔈" if volume < 30 else "🔉" if volume < 70 else "🔊"
         return f"{icon} {volume}%"
 
@@ -452,12 +458,12 @@ class NowPlayingBar(Static):
             elif state == PlayerState.LOADING:
                 info.update(PLAYER_LOADING_TEXT)
 
-    def update_volume(self, volume: int) -> None:
-        """Atualiza volume."""
+    def update_volume(self, volume: int, muted: bool = False) -> None:
+        """Atualiza volume e mute da barra (P02)."""
         vol_widget = self._child("#np-volume", Static)
         if vol_widget is None:
             return
-        vol_widget.update(self._volume_text(volume))
+        vol_widget.update(self._volume_text(volume, muted=muted))
 
     @staticmethod
     def _format_time(seconds: float) -> str:

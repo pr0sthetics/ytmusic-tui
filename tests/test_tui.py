@@ -58,7 +58,7 @@ from ytmusic_tui.tui.dialogs import (
     NameInputScreen,
     PlaylistPickerScreen,
 )
-from ytmusic_tui.tui.messages import format_key
+from ytmusic_tui.tui.messages import NO_TRACK_PLAYING, format_key, help_shortcut_lines
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
 from ytmusic_tui.tui.queue import QueueItem
 from ytmusic_tui.tui.widgets import (
@@ -4303,6 +4303,106 @@ async def test_leitura_antiga_das_playlists_nao_pisa_na_mais_nova(monkeypatch):
         await pilot.pause()
 
         assert [str(item.name) for item in view.playlists] == ["Novo"]
+
+
+# ===== Fase 2/P02: seek, volume e mudo pelas teclas =====
+
+
+@pytest.mark.asyncio
+async def test_teclas_de_seek_chamam_o_player(monkeypatch):
+    """P02: ``,`` e ``.`` pedem ±5 s ao player."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        pedidos: list[float] = []
+        monkeypatch.setattr(
+            player, "seek_relative", lambda seconds: pedidos.append(seconds) or True
+        )
+
+        await pilot.press("comma")
+        await pilot.press("full_stop")
+
+        assert pedidos == [-5.0, 5.0]
+
+
+@pytest.mark.asyncio
+async def test_seek_sem_faixa_avisa(monkeypatch):
+    """P02: sem faixa carregada o seek não pode ser um no-op mudo."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        toasts: list[str] = []
+        monkeypatch.setattr(screen, "_toast", toasts.append)
+        monkeypatch.setattr(player, "seek_relative", lambda seconds: False)
+
+        await pilot.press("full_stop")
+
+        assert toasts == [NO_TRACK_PLAYING]
+
+
+@pytest.mark.asyncio
+async def test_teclas_de_volume_e_mudo_atualizam_a_barra(monkeypatch):
+    """P02: ``+``/``-``/``m`` mudam o player e a barra mostra o estado."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        bar = screen.query_one("#now-playing", NowPlayingBar)
+        volume = bar.query_one("#np-volume", Static)
+        monkeypatch.setattr(player, "set_volume", lambda value: 50)
+        monkeypatch.setattr(player, "get_volume", lambda: 50)
+        monkeypatch.setattr(player, "is_muted", lambda: False)
+        monkeypatch.setattr(player, "toggle_mute", lambda: True)
+
+        await pilot.press("plus")
+        assert "50%" in str(volume.render())
+
+        monkeypatch.setattr(player, "is_muted", lambda: True)
+        await pilot.press("m")
+        assert "mudo" in str(volume.render())
+
+        # O evento do próprio player também alimenta a barra (auto-next e
+        # qualquer mudança feita fora das teclas).
+        app._handle_player_event(PlayerEvent(event="volume", data={"volume": 20, "muted": False}))
+        assert "20%" in str(volume.render())
+        app._handle_player_event(PlayerEvent(event="mute", data={"muted": True}))
+        assert "mudo" in str(volume.render())
+
+
+@pytest.mark.asyncio
+async def test_volume_nao_mente_quando_mudo(monkeypatch):
+    """P02: mudo tem prioridade sobre o nível no indicador."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        bar = app.screen.query_one("#now-playing", NowPlayingBar)
+        volume = bar.query_one("#np-volume", Static)
+
+        bar.update_volume(80, muted=True)
+        assert "mudo" in str(volume.render())
+
+        bar.update_volume(80, muted=False)
+        assert "mudo" not in str(volume.render())
+        assert "80%" in str(volume.render())
+
+
+@pytest.mark.asyncio
+async def test_ajuda_lista_as_teclas_novas():
+    """P02: a ajuda é montada dos bindings reais — as teclas novas aparecem."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        linhas = help_shortcut_lines([*app.BINDINGS, *MainScreen.BINDINGS])
+        texto = "\n".join(linhas)
+
+        assert "Voltar 5s" in texto
+        assert "Avançar 5s" in texto
+        assert "Aumentar volume" in texto
+        assert "Diminuir volume" in texto
+        assert "Mudo" in texto
 
 
 if __name__ == "__main__":
