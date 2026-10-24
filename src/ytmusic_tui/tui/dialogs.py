@@ -1,6 +1,6 @@
-"""Telas modais da TUI: Ajuda (T12-R1) e entrada de nome (T17.1/R3)."""
+"""Telas modais da TUI: Ajuda (T12-R1), entrada de nome (T17.1/R3) e fila (P01)."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
@@ -18,9 +18,15 @@ from ytmusic_tui.tui.messages import (
     PLAYLIST_NAME_REQUIRED,
     PLAYLIST_PICKER_EMPTY,
     PLAYLIST_PICKER_NEW,
+    QUEUE_CURRENT_MARK,
+    QUEUE_EMPTY_TEXT,
+    QUEUE_ITEM_MARK,
+    QUEUE_TITLE,
     help_shortcut_lines,
     playlist_label,
+    queue_item_label,
 )
+from ytmusic_tui.tui.queue import PlaybackQueue, QueueItem
 
 #: Sentinela devolvido pelo picker quando o usuário escolhe "➕ Nova playlist…".
 PICKER_NEW_PLAYLIST = "new"
@@ -240,4 +246,164 @@ class PlaylistPickerScreen(ModalScreen["Playlist | str | None"]):
         self.dismiss(PICKER_NEW_PLAYLIST)
 
     def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class QueueScreen(ModalScreen[None]):
+    """Fila de reprodução: ver, tocar agora, remover e reordenar (Fase 2/P01).
+
+    Opera diretamente sobre a ``PlaybackQueue`` (o modelo é do host) e avisa
+    quem abriu por ``on_play`` quando uma faixa precisa começar a tocar. Um
+    listener na fila mantém a lista em dia — se o auto-next trocar a faixa
+    com o modal aberto, o marcador ``▶`` acompanha.
+
+    Clique ou Enter numa linha toca a faixa (é o comportamento do
+    ``ListView`` do Textual); os botões dão "▶ Tocar" e "✕ Remover"
+    explícitos para o mouse. ``Esc`` fecha.
+    """
+
+    BINDINGS = [
+        Binding("escape", "close", "Fechar"),
+        Binding("delete", "remove_selected", "Remover"),
+        Binding("shift+up", "move_up", "Mover ↑"),
+        Binding("shift+down", "move_down", "Mover ↓"),
+    ]
+
+    def __init__(self, queue: PlaybackQueue, on_play: Callable[[QueueItem], None]) -> None:
+        super().__init__()
+        self._queue = queue
+        self._on_play = on_play
+        #: Uid por linha, para restaurar a seleção depois de um refresh.
+        self._uids: list[int] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="queue-box"):
+            yield Static(QUEUE_TITLE, id="queue-title", markup=False)
+            yield Static(QUEUE_EMPTY_TEXT, id="queue-empty", markup=False)
+            yield ListView(id="queue-list")
+            with Horizontal(id="queue-buttons"):
+                yield Button("▶ Tocar", id="queue-play", variant="primary")
+                yield Button("✕ Remover", id="queue-remove")
+                yield Button("Fechar", id="queue-close")
+
+    def on_mount(self) -> None:
+        self._queue.add_listener(self._refresh)
+        self._rebuild()
+        self.query_one("#queue-list", ListView).focus()
+
+    def on_unmount(self) -> None:
+        """Sai da lista de listeners: o modal não existe mais."""
+        self._queue.remove_listener(self._refresh)
+
+    # ===== Renderização =====
+
+    def _refresh(self) -> None:
+        """Listener da fila: redesenha se o modal ainda estiver montado."""
+        if not self.is_mounted:
+            return
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        """Redesenha as linhas, preservando a seleção pelo uid."""
+        try:
+            view = self.query_one("#queue-list", ListView)
+            empty = self.query_one("#queue-empty", Static)
+        except Exception:
+            return
+
+        selected = self._selected_uid()
+        current = self._queue.current
+        items = self._queue.items
+
+        empty.display = not items
+        view.display = bool(items)
+        view.clear()
+        self._uids = []
+        for item in items:
+            is_current = current is not None and item.uid == current.uid
+            mark = QUEUE_CURRENT_MARK if is_current else QUEUE_ITEM_MARK
+            view.append(ListItem(Label(queue_item_label(item, mark), markup=False)))
+            self._uids.append(item.uid)
+
+        if not items:
+            view.index = None
+            return
+        index = (
+            self._uids.index(selected)
+            if selected in self._uids
+            else min(self._queue.index, len(self._uids) - 1)
+        )
+        view.index = max(0, index)
+
+    def _selected_uid(self) -> int | None:
+        """Uid da linha selecionada agora (None sem seleção)."""
+        view = self.query_one("#queue-list", ListView)
+        if view.index is None or not 0 <= view.index < len(self._uids):
+            return None
+        return self._uids[view.index]
+
+    def _selected_index(self) -> int | None:
+        view = self.query_one("#queue-list", ListView)
+        if view.index is None or not 0 <= view.index < len(self._queue):
+            return None
+        return view.index
+
+    # ===== Ações =====
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Enter ou clique numa linha: toca a faixa agora."""
+        if event.list_view.id != "queue-list":
+            return
+        self.action_play_selected()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Mouse: tocar, remover ou fechar (o README promete mouse)."""
+        if event.button.id == "queue-play":
+            self.action_play_selected()
+        elif event.button.id == "queue-remove":
+            self.action_remove_selected()
+        elif event.button.id == "queue-close":
+            self.action_close()
+
+    def action_play_selected(self) -> None:
+        """Toca a linha selecionada sem fechar o modal."""
+        index = self._selected_index()
+        if index is None:
+            return
+        item = self._queue.play_at(index)
+        if item is not None:
+            self._on_play(item)
+
+    def action_remove_selected(self) -> None:
+        """Remove a linha selecionada (a fila decide o que passa a tocar).
+
+        Se a faixa removida era a que tocava, a que assumiu o lugar começa a
+        tocar de verdade — ``queue.remove`` só move o índice. Remover uma
+        faixa futura ou já tocada não interrompe nada.
+        """
+        uid = self._selected_uid()
+        if uid is None:
+            return
+        before = self._queue.current
+        self._queue.remove(uid)
+        after = self._queue.current
+        if after is not None and (before is None or after.uid != before.uid):
+            self._on_play(after)
+
+    def action_move_up(self) -> None:
+        """Sobe a linha selecionada (Shift+↑)."""
+        self._move(-1)
+
+    def action_move_down(self) -> None:
+        """Desce a linha selecionada (Shift+↓)."""
+        self._move(1)
+
+    def _move(self, delta: int) -> None:
+        uid = self._selected_uid()
+        if uid is None:
+            return
+        self._queue.move(uid, delta)
+
+    def action_close(self) -> None:
+        """Fecha o modal (Esc)."""
         self.dismiss(None)

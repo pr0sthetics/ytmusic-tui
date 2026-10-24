@@ -10,6 +10,7 @@ from ytmusic_tui.config import settings
 from ytmusic_tui.library.errors import AudioFileMissingError, describe_library_error
 from ytmusic_tui.library.models import Track as LibraryTrack
 from ytmusic_tui.player import PlayerState, TrackInfo, player
+from ytmusic_tui.tui.dialogs import QueueScreen
 from ytmusic_tui.tui.messages import (
     NO_TRACK_PLAYING,
     TRACK_WITHOUT_VIDEO_ID,
@@ -48,6 +49,8 @@ class PlaybackController:
     # isoladamente; as declarações abaixo existem só na checagem de tipos).
     queue: PlaybackQueue
     _last_auto_next: float
+    #: ``App`` da tela host (``push_screen`` do modal da fila).
+    app: Any
     if TYPE_CHECKING:
 
         def query_one(self, selector: Any, expect_type: Any = None) -> Any: ...
@@ -98,6 +101,14 @@ class PlaybackController:
         continuam valendo — parar não é limpar.
         """
         player.stop()
+
+    def action_show_queue(self) -> None:
+        """Abre o modal da fila (tecla ``f``) — P01."""
+        self.app.push_screen(QueueScreen(self.queue, on_play=self._play_queue_item))
+
+    def _play_queue_item(self, item: QueueItem) -> None:
+        """Toca um item escolhido no modal da fila (callback do modal)."""
+        self._start_playback(item.info)
 
     # ===== Seek, volume e mute (Fase 2/P02) =====
 

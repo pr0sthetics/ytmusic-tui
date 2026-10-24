@@ -18,6 +18,7 @@ from textual.widgets import (
     DataTable,
     Input,
     Label,
+    ListView,
     Select,
     Static,
     TabbedContent,
@@ -57,6 +58,7 @@ from ytmusic_tui.tui.dialogs import (
     HelpScreen,
     NameInputScreen,
     PlaylistPickerScreen,
+    QueueScreen,
 )
 from ytmusic_tui.tui.messages import NO_TRACK_PLAYING, format_key, help_shortcut_lines
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
@@ -4530,6 +4532,209 @@ async def test_espaco_parado_retoma_e_tocando_pausa(monkeypatch):
 
         assert pausas == [True]
         assert [info.video_id for info in played] == ["v1"]
+
+
+# ===== Fase 2/P01: modal da fila =====
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_lista_e_marca_a_faixa_atual(monkeypatch):
+    """P01: ``f`` abre a fila com a atual marcada; Esc fecha."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=1)
+
+        await pilot.press("f")
+        await pilot.pause()
+
+        assert isinstance(app.screen, QueueScreen)
+        assert type(screen) is MainScreen
+        modal = app.screen
+        view = modal.query_one("#queue-list", ListView)
+        linhas = [str(item.query_one(Label).render()) for item in view.children]
+
+        assert len(linhas) == 3
+        assert linhas[1].startswith("▶")
+        assert "F1" in linhas[1]
+        assert not linhas[0].startswith("▶")
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, QueueScreen)
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_vazia_explica(monkeypatch):
+    """P01: fila vazia tem mensagem em vez de lista muda."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+
+        await pilot.press("f")
+        await pilot.pause()
+        modal = app.screen
+        empty = modal.query_one("#queue-empty", Static)
+        view = modal.query_one("#queue-list", ListView)
+
+        assert "A fila está vazia" in str(empty.render())
+        assert empty.display is True
+        assert view.display is False
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_toca_a_linha_escolhida(monkeypatch):
+    """P01: Enter/clique numa linha toca agora, sem fechar o modal."""
+    played: list[TrackInfo] = []
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=0)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+        await pilot.press("f")
+        await pilot.pause()
+        modal = app.screen
+        view = modal.query_one("#queue-list", ListView)
+        view.index = 2
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert [info.video_id for info in played] == ["v2"]
+        assert screen.queue.index == 2
+        assert isinstance(app.screen, QueueScreen)
+        linhas = [str(item.query_one(Label).render()) for item in view.children]
+        assert linhas[2].startswith("▶")
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_remove_e_move(monkeypatch):
+    """P01: Delete remove; Shift+↑/↓ reordenam sem perder a atual."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=1)
+
+        await pilot.press("f")
+        await pilot.pause()
+        modal = app.screen
+        view = modal.query_one("#queue-list", ListView)
+
+        view.index = 0
+        await pilot.press("shift+down")
+        await pilot.pause()
+        assert [item.info.title for item in screen.queue.items] == ["F1", "F0", "F2"]
+        assert screen.queue.current is not None
+        assert screen.queue.current.info.title == "F1"
+
+        view.index = 2
+        await pilot.press("delete")
+        await pilot.pause()
+
+        assert [item.info.title for item in screen.queue.items] == ["F1", "F0"]
+        assert isinstance(app.screen, QueueScreen)
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_remove_a_atual_toca_a_proxima(monkeypatch):
+    """P01: remover a faixa que toca passa o bastão para a próxima."""
+    played: list[TrackInfo] = []
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=1)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+        await pilot.press("f")
+        await pilot.pause()
+        modal = app.screen
+        view = modal.query_one("#queue-list", ListView)
+
+        view.index = 1  # a faixa atual
+        await pilot.press("delete")
+        await pilot.pause()
+
+        assert [item.info.title for item in screen.queue.items] == ["F0", "F2"]
+        assert screen.queue.index == 1
+        assert [info.video_id for info in played] == ["v2"]
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_acompanha_o_auto_next(monkeypatch):
+    """P01: com o modal aberto, o auto-next move o marcador sozinho."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=0)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        monkeypatch.setattr(player, "play", lambda info: True)
+
+        await pilot.press("f")
+        await pilot.pause()
+        modal = app.screen
+        view = modal.query_one("#queue-list", ListView)
+
+        screen._last_auto_next = 0.0
+        app._on_player_event(PlayerEvent(event="track_ended", data={}))
+        await pilot.pause()
+
+        linhas = [str(item.query_one(Label).render()) for item in view.children]
+        assert linhas[1].startswith("▶")
+        assert screen.queue.index == 1
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_cabe_em_80x24(monkeypatch):
+    """P01: o modal mínimo documentado (80×24) mostra lista e botões."""
+    app = YTMusicTUI()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause()
+        _fila_de_teste(app, start=0, quantos=8)
+
+        await pilot.press("f")
+        await pilot.pause()
+        modal = app.screen
+
+        assert modal.query_one("#queue-list", ListView).display is True
+        assert modal.query_one("#queue-play", Button).display is True
+        assert modal.query_one("#queue-remove", Button).display is True
+        assert modal.query_one("#queue-close", Button).display is True
+        box = modal.query_one("#queue-box")
+        assert box.region.width <= 80
+        assert box.region.height <= 24
+
+
+@pytest.mark.asyncio
+async def test_modal_da_fila_botoes_de_mouse(monkeypatch):
+    """P01: os botões do modal funcionam pelo mouse."""
+    played: list[TrackInfo] = []
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = _fila_de_teste(app, start=0)
+        monkeypatch.setattr(screen, "_toast", lambda message: None)
+        monkeypatch.setattr(player, "play", lambda info: played.append(info) or True)
+
+        await pilot.press("f")
+        await pilot.pause()
+        modal = app.screen
+        view = modal.query_one("#queue-list", ListView)
+
+        view.index = 1
+        await pilot.click("#queue-play")
+        await pilot.pause()
+        assert [info.video_id for info in played] == ["v1"]
+
+        view.index = 0
+        await pilot.click("#queue-remove")
+        await pilot.pause()
+        assert [item.info.title for item in screen.queue.items] == ["F1", "F2"]
+
+        await pilot.click("#queue-close")
+        await pilot.pause()
+        assert not isinstance(app.screen, QueueScreen)
 
 
 if __name__ == "__main__":

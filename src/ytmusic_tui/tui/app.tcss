@@ -331,7 +331,8 @@ ConfirmScreen {
 
 #confirm-buttons,
 #name-buttons,
-#picker-buttons {
+#picker-buttons,
+#queue-buttons {
     height: auto;
     align: right middle;
     margin-top: 1;
@@ -339,7 +340,8 @@ ConfirmScreen {
 
 #confirm-buttons Button,
 #name-buttons Button,
-#picker-buttons Button {
+#picker-buttons Button,
+#queue-buttons Button {
     margin-left: 1;
     min-width: 12;
 }
@@ -426,3 +428,32 @@ $text-muted: #8b949e;
 $error: #f85149;
 $success: #3fb950;
 $warning: #d29922;
+/* Fila de reprodução (Fase 2/P01) */
+QueueScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+#queue-box {
+    width: 72;
+    max-width: 90%;
+    height: auto;
+    max-height: 80%;
+    border: solid $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+#queue-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#queue-empty {
+    color: $text-muted;
+}
+
+#queue-list {
+    height: auto;
+    max-height: 16;
+}
