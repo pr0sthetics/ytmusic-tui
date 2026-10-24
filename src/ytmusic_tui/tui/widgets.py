@@ -22,6 +22,7 @@ from ytmusic_tui.tui.messages import (
     escape_markup,
     playlist_label,
 )
+from ytmusic_tui.tui.queue import RepeatMode
 
 _WidgetT = TypeVar("_WidgetT", bound=Widget)
 
@@ -365,6 +366,7 @@ class NowPlayingBar(Static):
                 Static("0:00", id="np-time-total"),
                 id="np-progress-container",
             ),
+            Static("", id="np-modes"),
             Static(self._volume_text(self._initial_volume), id="np-volume"),
             id="np-container",
         )
@@ -414,6 +416,9 @@ class NowPlayingBar(Static):
         volume = self._child("#np-volume", Static)
         if volume is not None:
             volume.display = width >= 100
+        modes = self._child("#np-modes", Static)
+        if modes is not None:
+            modes.display = width >= 100
         progress = self._child("#np-progress-container", Horizontal)
         if progress is not None:
             progress.display = width >= 68
@@ -464,6 +469,24 @@ class NowPlayingBar(Static):
         if vol_widget is None:
             return
         vol_widget.update(self._volume_text(volume, muted=muted))
+
+    def update_modes(self, shuffle: bool, repeat: RepeatMode) -> None:
+        """Mostra os modos da fila (P03): ``🔀`` e ``🔁``/``🔂``.
+
+        Sem modo ligado o indicador fica vazio em vez de mostrar ícones
+        apagados — a barra só afirma o que está valendo.
+        """
+        modes_widget = self._child("#np-modes", Static)
+        if modes_widget is None:
+            return
+        marks: list[str] = []
+        if shuffle:
+            marks.append("🔀")
+        if repeat is RepeatMode.ALL:
+            marks.append("🔁")
+        elif repeat is RepeatMode.ONE:
+            marks.append("🔂")
+        modes_widget.update(" ".join(marks))
 
     @staticmethod
     def _format_time(seconds: float) -> str:

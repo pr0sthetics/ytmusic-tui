@@ -13,6 +13,9 @@ from ytmusic_tui.player import PlayerState, TrackInfo, player
 from ytmusic_tui.tui.dialogs import QueueScreen
 from ytmusic_tui.tui.messages import (
     NO_TRACK_PLAYING,
+    REPEAT_MESSAGES,
+    SHUFFLE_OFF,
+    SHUFFLE_ON,
     TRACK_WITHOUT_VIDEO_ID,
     play_started,
     playback_error,
@@ -109,6 +112,28 @@ class PlaybackController:
     def _play_queue_item(self, item: QueueItem) -> None:
         """Toca um item escolhido no modal da fila (callback do modal)."""
         self._start_playback(item.info)
+
+    # ===== Modos da fila (Fase 2/P03) =====
+
+    def action_toggle_shuffle(self) -> None:
+        """Liga/desliga o shuffle (tecla ``s``) — P03."""
+        ativo = self.queue.toggle_shuffle()
+        self._sync_modes()
+        self._toast(SHUFFLE_ON if ativo else SHUFFLE_OFF)
+
+    def action_cycle_repeat(self) -> None:
+        """Cicla a repetição ``off → all → one`` (tecla ``R``) — P03."""
+        modo = self.queue.cycle_repeat()
+        self._sync_modes()
+        self._toast(REPEAT_MESSAGES.get(str(modo.value), ""))
+
+    def _sync_modes(self) -> None:
+        """Espelha shuffle/repeat na barra (P03)."""
+        try:
+            bar = self.query_one("#now-playing", NowPlayingBar)
+        except Exception:
+            return
+        bar.update_modes(self.queue.shuffle, self.queue.repeat)
 
     # ===== Seek, volume e mute (Fase 2/P02) =====
 

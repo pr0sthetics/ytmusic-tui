@@ -360,6 +360,17 @@ def queue_item_label(item: Any, mark: str) -> str:
     return f"{mark} {title} — {artist}" if artist else f"{mark} {title}"
 
 
+SHUFFLE_ON = "🔀 Shuffle ligado"
+SHUFFLE_OFF = "🔀 Shuffle desligado"
+
+#: Texto por modo de repetição (chave = valor do ``RepeatMode``).
+REPEAT_MESSAGES = {
+    "off": "🔁 Repetição desligada",
+    "all": "🔁 Repetir a fila",
+    "one": "🔂 Repetir a faixa",
+}
+
+
 def playlist_label(name: str, track_count: int) -> str:
     """Linha do nível 1 da aba Playlists: ``nome · N faixas`` (R3)."""
     count = "1 faixa" if track_count == 1 else f"{track_count} faixas"

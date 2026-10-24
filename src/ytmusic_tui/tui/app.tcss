@@ -175,6 +175,15 @@ Screen {
     color: $text-muted;
 }
 
+/* Indicador de shuffle/repeat (P03): só ocupa o próprio conteúdo — sem
+   isso o 1fr padrão do Static estoura a barra em terminais largos. */
+#np-modes {
+    width: auto;
+    min-width: 0;
+    content-align: center middle;
+    color: $text-muted;
+}
+
 /* Scrollbars */
 ScrollableContainer > .scrollbar {
     background: $surface;

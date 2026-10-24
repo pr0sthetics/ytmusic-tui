@@ -140,6 +140,8 @@ class MainScreen(
         Binding("m", "mute", "Mudo"),
         Binding("x", "stop", "Parar"),
         Binding("f", "show_queue", "Fila"),
+        Binding("s", "toggle_shuffle", "Shuffle"),
+        Binding("R", "cycle_repeat", "Repetir"),
         Binding("ctrl+d", "download", "Baixar", priority=True),
         Binding("l", "like", "Curtir"),
         Binding("a", "download_album", "Baixar álbum"),
