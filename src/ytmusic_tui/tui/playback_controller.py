@@ -11,6 +11,7 @@ from ytmusic_tui.library.errors import AudioFileMissingError, describe_library_e
 from ytmusic_tui.library.models import Track as LibraryTrack
 from ytmusic_tui.player import TrackInfo, player
 from ytmusic_tui.tui.messages import TRACK_WITHOUT_VIDEO_ID, play_started, playback_error
+from ytmusic_tui.tui.queue import PlaybackQueue, QueueItem
 from ytmusic_tui.tui.widgets import SongListView
 
 
@@ -31,15 +32,16 @@ def ensure_audio_file(track: LibraryTrack) -> None:
 class PlaybackController:
     """Mixin com a fila de reprodução e as ações do player.
 
-    A classe host (``MainScreen``) inicializa ``_play_queue``,
-    ``_play_index`` e ``_last_auto_next`` e oferece ``_toast``; as listas
-    ``#search-songs``/``#album-songs``/``#library-*`` vêm do layout.
+    O estado da fila vive em ``self.queue`` (:class:`PlaybackQueue`) — a
+    política de repeat/shuffle e as edições ficam lá, testáveis sem UI. A
+    classe host (``MainScreen``) inicializa ``queue`` e ``_last_auto_next``
+    e oferece ``_toast``; as listas ``#search-songs``/``#album-songs``/
+    ``#library-*`` vêm do layout.
     """
 
     # Estado e membros fornecidos pela tela host (o mypy analisa cada mixin
     # isoladamente; as declarações abaixo existem só na checagem de tipos).
-    _play_queue: list[TrackInfo]
-    _play_index: int
+    queue: PlaybackQueue
     _last_auto_next: float
     if TYPE_CHECKING:
 
@@ -92,10 +94,31 @@ class PlaybackController:
             source_url=source_url,
         )
 
+    def _queue_item_from_song(self, song: Track, source: str = "search") -> QueueItem:
+        """Item de fila a partir de uma faixa da API."""
+        return QueueItem(info=self._track_info_from_song(song), source=source)
+
+    def _queue_item_from_library(self, track: LibraryTrack, source: str = "library") -> QueueItem:
+        """Item de fila a partir de uma faixa da biblioteca.
+
+        O ``track_id`` é o vínculo com a biblioteca local (curtidas,
+        histórico e contadores); faixa só de stream fica sem id.
+        """
+        track_id = getattr(track, "id", None)
+        return QueueItem(
+            info=self._track_info_from_library(track),
+            track_id=int(track_id) if track_id is not None else None,
+            source=source,
+        )
+
     # ===== Fila de reprodução =====
 
-    def play_song(self, song: Track, view_id: str = "search-songs") -> None:
-        """Reproduz uma música vinda da API (resultado de busca ou álbum)."""
+    def play_song(self, song: Track, view_id: str = "search-songs", source: str = "search") -> None:
+        """Reproduz uma música vinda da API (resultado de busca ou álbum).
+
+        A fila é a lista visível a partir da faixa escolhida — o gesto
+        "toquei esta" continua valendo com o shuffle ligado.
+        """
         info = self._track_info_from_song(song)
         if not info.video_id:
             self._toast(TRACK_WITHOUT_VIDEO_ID)
@@ -103,9 +126,9 @@ class PlaybackController:
 
         view = self.query_one(f"#{view_id}", SongListView)
         index = view.index if view.index is not None else 0
-        self._play_queue = [self._track_info_from_song(s) for s in view.songs]
-        self._play_index = index if 0 <= index < len(self._play_queue) else 0
-        self._start_playback(info)
+        items = [self._queue_item_from_song(item, source=source) for item in view.songs]
+        self._set_queue(items, start=index)
+        self._play_current()
 
     def play_library_track(self, track: LibraryTrack) -> None:
         """Reproduz uma faixa da biblioteca local (fila = faixas visíveis).
@@ -118,7 +141,7 @@ class PlaybackController:
         """
         if not self._guard_audio_file(track):
             return
-        self._play_from_list(self._library_visible_tracks(), track)
+        self._play_from_list(self._library_visible_tracks(), track, source="library")
 
     def play_playlist_track(self, track: LibraryTrack) -> None:
         """Reproduz uma faixa de playlist (fila = ordem da playlist — R3).
@@ -128,7 +151,9 @@ class PlaybackController:
         """
         if not self._guard_audio_file(track):
             return
-        self._play_from_list(self._playlist_visible_tracks(), track)
+        playlist_id = getattr(getattr(self, "_playlist_open", None), "id", None)
+        source = f"playlist:{playlist_id}" if playlist_id is not None else "playlist"
+        self._play_from_list(self._playlist_visible_tracks(), track, source=source)
 
     def _guard_audio_file(self, track: LibraryTrack) -> bool:
         """Confere o arquivo registrado; avisa e devolve False se sumiu."""
@@ -139,46 +164,67 @@ class PlaybackController:
             return False
         return True
 
-    def _play_from_list(self, visible: list[LibraryTrack], track: LibraryTrack) -> None:
+    def _play_from_list(
+        self, visible: list[LibraryTrack], track: LibraryTrack, source: str = "library"
+    ) -> None:
         """Toca ``track`` com a fila nas faixas visíveis, a partir dela."""
         try:
             index = visible.index(track)
         except ValueError:
             index = 0
-        self._play_queue = (
-            [self._track_info_from_library(item) for item in visible]
+        items = (
+            [self._queue_item_from_library(item, source=source) for item in visible]
             if visible
-            else [self._track_info_from_library(track)]
+            else [self._queue_item_from_library(track, source=source)]
         )
-        self._play_index = index if 0 <= index < len(self._play_queue) else 0
-        self._start_playback(self._track_info_from_library(track))
+        self._set_queue(items, start=index)
+        self._play_current()
 
-    def _start_playback(self, info: TrackInfo) -> None:
+    def _set_queue(self, items: list[QueueItem], start: int) -> QueueItem | None:
+        """Define a fila; devolve o item que passou a ser o atual."""
+        self.queue.set_items(items, start=max(0, start))
+        return self.queue.current
+
+    def _play_current(self) -> bool:
+        """Toca a faixa atual da fila (a fila já decidiu qual é)."""
+        item = self.queue.current
+        if item is None:
+            return False
+        return self._start_playback(item.info)
+
+    def _start_playback(self, info: TrackInfo) -> bool:
         """Inicia a reprodução de uma faixa."""
         if player.play(info):
             self._toast(play_started(info.title))
+            return True
+        return False
 
     def _play_relative(self, delta: int) -> bool:
         """Toca a faixa na posição atual + delta (fila da última lista usada)."""
-        new_index = self._play_index + delta
-        if not (0 <= new_index < len(self._play_queue)):
+        if delta == 1:
+            item = self.queue.next(auto=False)
+        elif delta == -1:
+            item = self.queue.previous()
+        else:
+            item = self.queue.play_at(self.queue.index + delta)
+        if item is None:
             return False
-        self._play_index = new_index
-        self._start_playback(self._play_queue[new_index])
-        return True
+        return self._start_playback(item.info)
 
     def _maybe_auto_next(self) -> bool:
         """Avança para a próxima faixa (auto-play), com debounce.
 
         O fim da faixa gera dois eventos ("track_ended" e "ended"); o
-        debounce evita avançar duas vezes.
+        debounce evita avançar duas vezes. ``auto_play_next`` é o master
+        switch: desligado, a fila não avança sozinha nem com repeat ligado.
         """
         if not settings.auto_play_next:
             return False
         now = time.monotonic()
         if now - self._last_auto_next < 1.0:
             return False
-        if self._play_index + 1 >= len(self._play_queue):
+        item = self.queue.next(auto=True)
+        if item is None:
             return False
         self._last_auto_next = now
-        return self._play_relative(1)
+        return self._start_playback(item.info)

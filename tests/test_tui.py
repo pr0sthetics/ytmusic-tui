@@ -60,6 +60,7 @@ from ytmusic_tui.tui.dialogs import (
 )
 from ytmusic_tui.tui.messages import format_key
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
+from ytmusic_tui.tui.queue import QueueItem
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
@@ -1557,7 +1558,7 @@ async def test_library_nivel_1_albuns_e_avulsas(monkeypatch):
         await pilot.press("enter")
         await pilot.pause()
         assert [info.title for info in played] == ["Avulsa única"]
-        assert [info.title for info in screen._play_queue] == ["Avulsa única"]
+        assert [item.info.title for item in screen.queue.items] == ["Avulsa única"]
 
 
 @pytest.mark.asyncio
@@ -1667,16 +1668,18 @@ async def test_library_modo_album_expande_toca_e_volta(monkeypatch):
         await pilot.press("t")
         await pilot.pause()
         assert [info.title for info in played] == ["Primeira"]
-        assert [info.title for info in screen._play_queue] == ["Primeira", "Segunda", "Terceira"]
-        assert screen._play_index == 0
+        titles = [item.info.title for item in screen.queue.items]
+        assert titles == ["Primeira", "Segunda", "Terceira"]
+        assert screen.queue.index == 0
 
         # Enter na 2ª faixa: toca com a fila NA ORDEM do álbum.
         tracks.index = 1
         await pilot.press("enter")
         await pilot.pause()
         assert played[-1].title == "Segunda"
-        assert [info.title for info in screen._play_queue] == ["Primeira", "Segunda", "Terceira"]
-        assert screen._play_index == 1
+        titles = [item.info.title for item in screen.queue.items]
+        assert titles == ["Primeira", "Segunda", "Terceira"]
+        assert screen.queue.index == 1
 
         # ← volta ao nível 1 (mesmo caminho do Esc — desvio documentado).
         await pilot.press("left")
@@ -1811,8 +1814,8 @@ async def test_playlists_nivel_1_cria_abre_e_volta(monkeypatch):
         await pilot.press("enter")
         await pilot.pause()
         assert [info.title for info in played] == ["Faixa 2"]
-        assert [info.title for info in screen._play_queue] == ["Faixa 1", "Faixa 2", "Faixa 3"]
-        assert screen._play_index == 1
+        assert [item.info.title for item in screen.queue.items] == ["Faixa 1", "Faixa 2", "Faixa 3"]
+        assert screen.queue.index == 1
 
         # ← volta (mesmo caminho do Esc); Esc volta depois de reabrir.
         await pilot.press("left")
@@ -2641,8 +2644,10 @@ async def test_queue_next_previous_and_auto_play(monkeypatch):
 
         monkeypatch.setattr(player, "play", _fake_play)
 
-        screen._play_queue = [TrackInfo(video_id=str(i), title=f"F{i}") for i in range(3)]
-        screen._play_index = 0
+        screen.queue.set_items(
+            [QueueItem(info=TrackInfo(video_id=str(i), title=f"F{i}")) for i in range(3)],
+            start=0,
+        )
 
         assert screen._play_relative(1) is True
         assert played[-1].video_id == "1"
@@ -2656,7 +2661,7 @@ async def test_queue_next_previous_and_auto_play(monkeypatch):
         assert played[-1].video_id == "2"
 
         # Fim da faixa (eof) com auto-play ligado
-        screen._play_index = 0
+        screen.queue.play_at(0)
         screen._last_auto_next = 0.0
         app._on_player_event(PlayerEvent(event="track_ended", data={}))
         assert played[-1].video_id == "1"

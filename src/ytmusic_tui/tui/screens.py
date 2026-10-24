@@ -38,7 +38,7 @@ from ytmusic_tui.config import (
 from ytmusic_tui.diagnostics import mask_diagnostics
 from ytmusic_tui.download import download_manager
 from ytmusic_tui.errors import ConfigError
-from ytmusic_tui.player import TrackInfo, player
+from ytmusic_tui.player import player
 from ytmusic_tui.tui.dialogs import HelpScreen
 from ytmusic_tui.tui.download_controller import DownloadController
 from ytmusic_tui.tui.library_controller import LIBRARY_EMPTY_TEXT, LibraryController
@@ -67,6 +67,7 @@ from ytmusic_tui.tui.messages import (
 )
 from ytmusic_tui.tui.playback_controller import PlaybackController
 from ytmusic_tui.tui.playlist_controller import PlaylistController
+from ytmusic_tui.tui.queue import PlaybackQueue
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
@@ -155,8 +156,9 @@ class MainScreen(
 
     def __init__(self) -> None:
         super().__init__()
-        self._play_queue: list[TrackInfo] = []
-        self._play_index: int = -1
+        # Fila de reprodução (Fase 2/P01): a política vive em ``queue``; a
+        # tela só reage a ela e é dona de *quando* tocar.
+        self.queue: PlaybackQueue = PlaybackQueue()
         self._last_auto_next: float = 0.0
         # Álbum aberto na aba dedicada (modelo interno do T10-R1); usado pelo "a".
         self._current_album: AlbumDetail | None = None
@@ -701,7 +703,10 @@ class MainScreen(
         if isinstance(view, SongListView):
             song = view.get_selected_song()
             if song and view.id:
-                self.play_song(song, view_id=view.id)
+                # A origem alimenta o histórico: a lista de faixas do álbum
+                # aberto é ``album``; o resultado de busca é ``search``.
+                source = "album" if view.id == "album-songs" else "search"
+                self.play_song(song, view_id=view.id, source=source)
         elif isinstance(view, AlbumListView):
             album = view.get_selected_album()
             if album:
