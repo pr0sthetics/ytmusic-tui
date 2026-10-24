@@ -6,13 +6,13 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-637%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-710%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
 > ## 🤖 AI-native, human-verified
 >
-> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **641 automated tests** (637 run offline by default) and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **714 automated tests** (710 run offline by default) and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -20,6 +20,7 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 ## ✨ Features
 
 - 🎵 **Music playback** via mpv (direct streaming, selectable quality)
+- 📻 **Automatic radio at the end of the queue**: when the last track ends (repeat off), playback continues with related popular tracks from YouTube Music's song radio; each track seeds the next, with session dedupe — no personalized home or generated playlist
 - 🔍 **Search** for songs (25), videos (20) and albums (15) in parallel, with type and year on albums (`💿 My Dear Melancholy, — The Weeknd  (EP, 2018)`)
 - 💿 **Album tab**: open an album from the search and see tracks, artist and year — `Enter` plays (with a continuous queue) and `A` downloads the whole album, **skipping tracks already downloaded**
 - 📥 **Download** via yt-dlp + ffmpeg: best stream available → MP3 320 kbps (or opus/m4a/flac), with ID3 tags and **embedded cover art**
@@ -330,6 +331,7 @@ The app's **Config** tab edits the main options and writes to that same file rig
 | `embed_metadata` | `true` | ID3 tags + embedded cover art in the files |
 | `show_notifications` | `true` | Toast notifications |
 | `auto_play_next` | `true` | Automatically play the next track in the queue |
+| `auto_similar` | `true` | At the end of the queue, continue with related tracks (radio; requires `auto_play_next`) |
 | `library_db_name` | `"library.db"` | SQLite file name of the local library |
 | `config_dir`, `data_dir`, `cache_dir` | XDG | Internal directories (advanced, usually don't touch) |
 
@@ -421,8 +423,8 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **AI-native, human-verified** (note at the top): the 637 offline tests cover the main flow, but the occasional bug is expected
-- No MPRIS, lyrics, equalizer or automatic radio (Roadmap). Built-in **themes** are available from the command palette and apply to the current session; custom theme files are not supported yet.
+- **AI-native, human-verified** (note at the top): the 710 offline tests cover the main flow, but the occasional bug is expected
+- No MPRIS, lyrics or equalizer (Roadmap). Automatic radio continues the queue with related tracks; it is not a personalized home or a generated playlist. Built-in **themes** are available from the command palette and apply to the current session; custom theme files are not supported yet.
 
 ## 🆘 When something breaks (and it's not the app)
 
@@ -483,7 +485,7 @@ ytmusic-tui/
 │       ├── screens.py         # MainScreen: tabs, shortcuts and navigation
 │       ├── widgets.py         # Custom widgets (lists, player bar)
 │       └── *_controller.py    # Playback, downloads, library and playlists (mixins)
-└── tests/                     # 637 offline tests in layers (L1 mocks + L2 local) + 4 opt-in
+└── tests/                     # 710 offline tests in layers (L1 mocks + L2 local) + 4 opt-in
 ```
 
 ## 🤖 Development methodology & AI stack
@@ -562,7 +564,6 @@ Looking to update a **local installation** (pipx/pip), pin an older version or u
 
 ## 🗺️ Roadmap
 
-- [ ] Automatic radio/mix (infinite autoplay)
 - [ ] Synced lyrics
 - [ ] MPRIS control (desktop integration)
 - [ ] Equalizer

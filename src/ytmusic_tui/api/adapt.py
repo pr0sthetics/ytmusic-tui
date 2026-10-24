@@ -24,6 +24,7 @@ from ytmusic_tui.errors import InvalidResponseError
 __all__ = [
     "album_detail_from_raw",
     "album_from_raw",
+    "radio_tracks_from_raw",
     "search_result_from_raws",
     "track_from_raw",
 ]
@@ -144,8 +145,14 @@ def _album_fields(raw: dict[str, Any]) -> tuple[str, str]:
 
 
 def _thumbnail_field(raw: dict[str, Any]) -> str:
-    """Maior thumbnail (última da lista), como o playback já usava."""
+    """Maior thumbnail (última da lista), como o playback já usava.
+
+    A busca/álbum usa ``thumbnails``; a rádio (watch playlist) usa o
+    singular ``thumbnail`` com a mesma forma de lista.
+    """
     value = raw.get("thumbnails")
+    if value is None:
+        value = raw.get("thumbnail")
     if value is None:
         return ""
     if not isinstance(value, list):
@@ -163,20 +170,82 @@ def _thumbnail_field(raw: dict[str, Any]) -> str:
     return ""
 
 
+def _duration_text_field(raw: dict[str, Any]) -> str:
+    """Duração textual: ``duration`` (busca/álbum) OU ``length`` (rádio)."""
+    value = raw.get("duration")
+    if value is None:
+        value = raw.get("length")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise _invalid("duration", "str", value)
+    return value
+
+
+def _parse_duration(text: str) -> int | None:
+    """Converte ``M:SS``/``H:MM:SS`` em segundos; inválido vira ``None``."""
+    if not text:
+        return None
+    parts = text.split(":")
+    if not 1 <= len(parts) <= 3:
+        return None
+    try:
+        values = [int(part) for part in parts]
+    except ValueError:
+        return None
+    if any(value < 0 for value in values):
+        return None
+    seconds = 0
+    for value in values:
+        seconds = seconds * 60 + value
+    return seconds
+
+
 def track_from_raw(raw: dict[str, Any]) -> Track:
-    """Converte uma faixa crua (busca ou álbum) no modelo interno."""
+    """Converte uma faixa crua (busca, álbum ou rádio) no modelo interno."""
     album_name, album_id = _album_fields(raw)
+    duration_text = _duration_text_field(raw)
+    duration_seconds = _int_field(raw, "duration_seconds")
+    if duration_seconds is None:
+        duration_seconds = _parse_duration(duration_text)
     return Track(
         video_id=_str_field(raw, "videoId"),
         title=_str_field(raw, "title"),
         artists=_artists_field(raw),
-        duration_text=_str_field(raw, "duration"),
-        duration_seconds=_int_field(raw, "duration_seconds"),
+        duration_text=duration_text,
+        duration_seconds=duration_seconds,
         album_name=album_name,
         album_id=album_id,
         thumbnail_url=_thumbnail_field(raw),
         is_available=_bool_field(raw, "isAvailable", default=True),
     )
+
+
+def radio_tracks_from_raw(raw: Any) -> tuple[Track, ...]:
+    """Adapta ``get_watch_playlist(radio=True)`` para modelos internos.
+
+    A rádio devolve ``{"tracks": [...]}``; cada item usa ``length`` em vez
+    de ``duration`` e ``thumbnail`` no singular. Faixas sem ``videoId`` são
+    descartadas — não são tocáveis. Forma fora do contrato levanta
+    ``InvalidResponseError``, como no resto da fronteira T10-R1.
+    """
+    if not isinstance(raw, dict):
+        raise InvalidResponseError(
+            f"resposta inesperada da API: esperado dict, recebido {type(raw).__name__}"
+        )
+    raw_tracks = raw.get("tracks")
+    if raw_tracks is None:
+        return ()
+    if not isinstance(raw_tracks, list):
+        raise _invalid("tracks", "lista", raw_tracks)
+    tracks: list[Track] = []
+    for item in raw_tracks:
+        if not isinstance(item, dict):
+            raise _invalid("tracks[]", "dict", item)
+        track = track_from_raw(item)
+        if track.video_id:
+            tracks.append(track)
+    return tuple(tracks)
 
 
 def album_from_raw(raw: dict[str, Any]) -> Album:

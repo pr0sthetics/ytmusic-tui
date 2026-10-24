@@ -6,6 +6,15 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Adicionado
+
+- **Rádio automática (P05):** ao fim da fila (repeat `off`), o app continua
+  com uma faixa parecida e popular da rádio do YouTube Music. A busca roda
+  em background, ignora a semente/indisponíveis/últimas 50 tocadas e cada
+  faixa vira a semente da próxima. A opção `auto_similar` (padrão `true`)
+  fica na aba Config; falha de recomendação só mostra um toast e mantém a
+  fila. Não há home personalizada nem playlist gerada.
+
 ## [0.3.2] - 2026-10-22
 
 ### Corrigido

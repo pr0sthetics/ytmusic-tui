@@ -363,6 +363,10 @@ def queue_item_label(item: Any, mark: str) -> str:
 SHUFFLE_ON = "🔀 Shuffle ligado"
 SHUFFLE_OFF = "🔀 Shuffle desligado"
 
+#: Rádio automática (P05): feedback honesto enquanto a fila está no fim.
+SIMILAR_SEARCHING = "📻 Buscando músicas parecidas…"
+SIMILAR_UNAVAILABLE = "📻 Sem recomendação agora — a fila parou"
+
 #: Texto por modo de repetição (chave = valor do ``RepeatMode``).
 REPEAT_MESSAGES = {
     "off": "🔁 Repetição desligada",

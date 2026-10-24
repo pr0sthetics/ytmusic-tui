@@ -36,7 +36,8 @@ class QueueItem:
 
     ``track_id`` é o id na biblioteca local quando a faixa veio dela; faixas
     só de stream ficam com ``None``. ``source`` alimenta o histórico
-    (``search``, ``library``, ``playlist:1``, ``album:2``, ``history``).
+    (``search``, ``library``, ``playlist:1``, ``album:2``, ``history``) e
+    distingue a continuação automática (``radio``, P05).
     """
 
     info: TrackInfo
@@ -197,6 +198,18 @@ class PlaybackQueue:
         return self.current
 
     # ===== Edição =====
+
+    def append(self, item: QueueItem) -> int:
+        """Acrescenta ao fim sem mudar a faixa atual; devolve o índice.
+
+        Usado pela rádio (P05) quando a fila termina: a faixa parecida entra
+        no fim, fica visível no modal e o ``←`` volta para a anterior.
+        """
+        if any(existing.uid == item.uid for existing in self._items):
+            raise ValueError("a fila não pode ter uid repetido")
+        self._items.append(item)
+        self._notify()
+        return len(self._items) - 1
 
     def remove(self, uid: int) -> bool:
         """Remove o item; devolve False se o uid não está na fila."""

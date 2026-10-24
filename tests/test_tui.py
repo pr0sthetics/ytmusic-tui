@@ -2854,6 +2854,11 @@ async def test_config_tab_widgets_apply_on_interaction(monkeypatch):
         await pilot.pause()
         assert "auto_play_next" in saved
 
+        similar = screen.query_one("#setting-similar", Checkbox)
+        similar.value = not similar.value
+        await pilot.pause()
+        assert "auto_similar" in saved
+
 
 @pytest.mark.asyncio
 async def test_app_starts_directly_on_main_screen():

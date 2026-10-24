@@ -1,5 +1,7 @@
 """Fila de reprodução e ações do player (mixin de ``MainScreen``)."""
 
+import asyncio
+import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,12 +18,17 @@ from ytmusic_tui.tui.messages import (
     REPEAT_MESSAGES,
     SHUFFLE_OFF,
     SHUFFLE_ON,
+    SIMILAR_SEARCHING,
+    SIMILAR_UNAVAILABLE,
     TRACK_WITHOUT_VIDEO_ID,
     play_started,
     playback_error,
 )
 from ytmusic_tui.tui.queue import PlaybackQueue, QueueItem
+from ytmusic_tui.tui.similar import SimilarPicker
 from ytmusic_tui.tui.widgets import NowPlayingBar, SongListView
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_audio_file(track: LibraryTrack) -> None:
@@ -43,15 +50,17 @@ class PlaybackController:
 
     O estado da fila vive em ``self.queue`` (:class:`PlaybackQueue`) — a
     política de repeat/shuffle e as edições ficam lá, testáveis sem UI. A
-    classe host (``MainScreen``) inicializa ``queue`` e ``_last_auto_next``
-    e oferece ``_toast``; as listas ``#search-songs``/``#album-songs``/
-    ``#library-*`` vêm do layout.
+    classe host (``MainScreen``) inicializa ``queue``, ``similar``,
+    ``_last_auto_next`` e ``_similar_token`` e oferece ``_toast``; as listas
+    ``#search-songs``/``#album-songs``/``#library-*`` vêm do layout.
     """
 
     # Estado e membros fornecidos pela tela host (o mypy analisa cada mixin
     # isoladamente; as declarações abaixo existem só na checagem de tipos).
     queue: PlaybackQueue
+    similar: SimilarPicker
     _last_auto_next: float
+    _similar_token: int
     #: ``App`` da tela host (``push_screen`` do modal da fila).
     app: Any
     if TYPE_CHECKING:
@@ -60,6 +69,7 @@ class PlaybackController:
         def _toast(self, message: str) -> None: ...
         def _library_visible_tracks(self) -> list[LibraryTrack]: ...
         def _playlist_visible_tracks(self) -> list[LibraryTrack]: ...
+        def run_worker(self, *args: Any, **kwargs: Any) -> Any: ...
 
     #: A partir desta posição, o ``←`` reinicia a faixa em vez de voltar
     #: (Fase 2/P02): é o gesto que o usuário espera de um player de música.
@@ -101,8 +111,11 @@ class PlaybackController:
         """Para a reprodução mantendo a fila (tecla ``x``).
 
         A fila fica intacta: o ``Espaço`` retoma a faixa atual e ``→``/``←``
-        continuam valendo — parar não é limpar.
+        continuam valendo — parar não é limpar. Também invalida uma rádio
+        pendente: parar depois do fim não pode ser seguido por uma faixa
+        automática segundos depois.
         """
+        self._cancel_similar()
         player.stop()
 
     def action_show_queue(self) -> None:
@@ -301,6 +314,7 @@ class PlaybackController:
 
     def _set_queue(self, items: list[QueueItem], start: int) -> QueueItem | None:
         """Define a fila; devolve o item que passou a ser o atual."""
+        self._cancel_similar()
         self.queue.set_items(items, start=max(0, start))
         return self.queue.current
 
@@ -312,8 +326,15 @@ class PlaybackController:
         return self._start_playback(item.info)
 
     def _start_playback(self, info: TrackInfo) -> bool:
-        """Inicia a reprodução de uma faixa."""
+        """Inicia a reprodução de uma faixa.
+
+        Qualquer faixa iniciada invalida uma busca de rádio pendente (P05):
+        um resultado que chegue depois não pode roubar a reprodução do
+        usuário. A faixa entra no histórico recente do picker para o dedupe.
+        """
+        self._cancel_similar()
         if player.play(info):
+            self.similar.remember(info.video_id)
             self._toast(play_started(info.title))
             return True
         return False
@@ -327,6 +348,9 @@ class PlaybackController:
         else:
             item = self.queue.play_at(self.queue.index + delta)
         if item is None:
+            # No fim da fila, o gesto manual também descarta uma rádio que
+            # ainda estaria chegando: o usuário pediu para sair daqui.
+            self._cancel_similar()
             return False
         return self._start_playback(item.info)
 
@@ -336,6 +360,11 @@ class PlaybackController:
         O fim da faixa gera dois eventos ("track_ended" e "ended"); o
         debounce evita avançar duas vezes. ``auto_play_next`` é o master
         switch: desligado, a fila não avança sozinha nem com repeat ligado.
+
+        No fim da fila (repeat ``off``), ``auto_similar`` pede a rádio da
+        faixa atual em background: a reprodução continua com uma parecida
+        em vez de parar. Repeat ``all``/``one`` nunca chega aqui com
+        ``None`` — o comportamento deles não muda.
         """
         if not settings.auto_play_next:
             return False
@@ -344,6 +373,70 @@ class PlaybackController:
             return False
         item = self.queue.next(auto=True)
         if item is None:
-            return False
+            if not settings.auto_similar:
+                return False
+            self._last_auto_next = now
+            return self._request_similar()
         self._last_auto_next = now
         return self._start_playback(item.info)
+
+    # ===== Rádio automática (Fase 2/P05) =====
+
+    def _cancel_similar(self) -> None:
+        """Invalida uma busca de rádio pendente (troca/parada de faixa)."""
+        self._similar_token += 1
+
+    def _request_similar(self) -> bool:
+        """Pede a rádio da faixa atual e toca a primeira parecida (P05).
+
+        A busca roda num worker: a UI não congela e o resultado é descartado
+        se o usuário trocar, parar ou reiniciar a faixa antes de ele chegar.
+        Devolve ``False`` quando não há faixa/semente para pedir a rádio.
+        """
+        seed = self.queue.current
+        if seed is None or not seed.info.video_id:
+            return False
+        self._similar_token += 1
+        token = self._similar_token
+        self._toast(SIMILAR_SEARCHING)
+        self.run_worker(
+            self._fetch_similar(seed, token),
+            group="similar",
+            exclusive=True,
+        )
+        return True
+
+    async def _fetch_similar(self, seed: QueueItem, token: int) -> None:
+        """Busca a rádio fora da thread da UI e continua a fila (P05)."""
+        try:
+            candidates = await asyncio.to_thread(
+                ytmusic.get_radio_tracks,
+                seed.info.video_id,
+            )
+        except Exception as error:
+            if token == self._similar_token:
+                self._similar_token += 1
+                logger.warning("rádio falhou para %s: %s", seed.info.video_id, error)
+                self._toast(SIMILAR_UNAVAILABLE)
+            return
+        if token != self._similar_token:
+            return
+        # A Config pode ter mudado durante a busca (o usuário desligou o
+        # auto-play ou a rádio): a resposta antiga não pode ressuscitar a
+        # reprodução que ele acabou de desligar.
+        if not settings.auto_play_next or not settings.auto_similar:
+            return
+        track = self.similar.pick(candidates, seed.info.video_id)
+        if track is None:
+            self._similar_token += 1
+            self._toast(SIMILAR_UNAVAILABLE)
+            return
+        current = self.queue.current
+        if current is None or current.uid != seed.uid:
+            return
+        if player.state is not PlayerState.STOPPED:
+            return
+        item = self._queue_item_from_song(track, source="radio")
+        index = self.queue.append(item)
+        self.queue.play_at(index)
+        self._start_playback(item.info)

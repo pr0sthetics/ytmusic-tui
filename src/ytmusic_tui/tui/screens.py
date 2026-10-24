@@ -68,6 +68,7 @@ from ytmusic_tui.tui.messages import (
 from ytmusic_tui.tui.playback_controller import PlaybackController
 from ytmusic_tui.tui.playlist_controller import PlaylistController
 from ytmusic_tui.tui.queue import PlaybackQueue
+from ytmusic_tui.tui.similar import SimilarPicker
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
@@ -169,6 +170,10 @@ class MainScreen(
         # tela só reage a ela e é dona de *quando* tocar.
         self.queue: PlaybackQueue = PlaybackQueue()
         self._last_auto_next: float = 0.0
+        # Rádio automática (Fase 2/P05): escolha de parecidas e época da
+        # busca em background — resultado antigo é descartado pelo token.
+        self.similar: SimilarPicker = SimilarPicker()
+        self._similar_token: int = 0
         # Álbum aberto na aba dedicada (modelo interno do T10-R1); usado pelo "a".
         self._current_album: AlbumDetail | None = None
         # Nova busca marca o abort de retry da anterior (T10-R3, A1); None = sem busca.
@@ -287,6 +292,11 @@ class MainScreen(
                             "Auto-play próxima",
                             value=settings.auto_play_next,
                             id="setting-autoplay",
+                        )
+                        yield Checkbox(
+                            "Rádio automática ao fim da fila",
+                            value=settings.auto_similar,
+                            id="setting-similar",
                         )
                     with Collapsible(title="Dependências", collapsed=True):
                         yield Static(render_dependencies(), id="dependency-status")
@@ -651,6 +661,10 @@ class MainScreen(
             if event.value == settings.auto_play_next:
                 return
             self._save_setting(auto_play_next=event.value)
+        elif event.checkbox.id == "setting-similar":
+            if event.value == settings.auto_similar:
+                return
+            self._save_setting(auto_similar=event.value)
 
     def _save_setting(self, **updates: Any) -> bool:
         """Grava uma alteração da Config; ``True`` = gravou, ``False`` = erro.

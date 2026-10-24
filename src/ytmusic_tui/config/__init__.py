@@ -277,6 +277,10 @@ class Settings(BaseSettings):
         default=True,
         description="Reproduzir próxima música automaticamente",
     )
+    auto_similar: bool = Field(
+        default=True,
+        description="Ao fim da fila, continuar com músicas parecidas (rádio)",
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
