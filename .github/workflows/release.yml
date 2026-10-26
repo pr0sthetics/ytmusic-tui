@@ -126,7 +126,7 @@ jobs:
           fi
           echo "CI verde para ${SHA}"
 
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
 
       - name: Build limpo (uv build no commit da tag)
         run: |
