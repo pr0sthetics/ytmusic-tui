@@ -132,7 +132,11 @@ class MPVPlayer:
             "ytdl": True,
             "ytdl_format": self._ytdl_format(),
             "force_window": False,
-            "keep_open": True,
+            # O auto-next/rádio dependem de ``end-file`` com reason ``eof``.
+            # Com keep-open o mpv pausa no último frame e não emite o evento,
+            # então a fila nunca avança sozinha (regressão encontrada em uso
+            # real em 2026-10-26). Com idle, o handle continua vivo.
+            "keep_open": False,
             "idle": True,
             # Q19/T16: mensagens do mpv vão para o log interno (log_handler),
             # nunca direto no terminal — nada de texto cru por cima da TUI.

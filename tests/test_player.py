@@ -520,6 +520,17 @@ def test_end_file_eof_decodes_to_track_ended(monkeypatch):
     assert events == ["track_ended"]
 
 
+def test_track_end_is_not_kept_open(monkeypatch):
+    """O fim da faixa precisa emitir ``end-file``/eof, não pausar no frame.
+
+    ``keep-open=yes`` faz o mpv parar no último frame e suprime o evento;
+    sem ``track_ended`` o auto-next e a rádio nunca são chamados.
+    """
+    _, fake = _started_player(monkeypatch)
+
+    assert fake.kwargs["keep_open"] is False
+
+
 def test_end_file_error_without_detail_has_clear_fallback(monkeypatch):
     """T11-R3: sem ``file_error``, a mensagem não vira "Erro desconhecido"."""
     p, fake = _started_player(monkeypatch)

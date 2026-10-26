@@ -15,6 +15,13 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
   fica na aba Config; falha de recomendação só mostra um toast e mantém a
   fila. Não há home personalizada nem playlist gerada.
 
+### Corrigido
+
+- **Auto-next/rádio:** o mpv estava configurado com `keep-open`, então o fim
+  natural da faixa pausava no último frame sem emitir `track_ended`; a fila
+  não avançava sozinha nem iniciava a rádio. Agora o fim da faixa emite o
+  evento e o auto-play funciona com reprodução real.
+
 ## [0.3.2] - 2026-10-22
 
 ### Corrigido
