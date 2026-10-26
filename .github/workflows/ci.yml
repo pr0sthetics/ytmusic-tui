@@ -27,7 +27,7 @@ jobs:
       # estiver ausente ou fora de sincronia com o pyproject.toml.
       # Sem tag móvel "v10" (só versões exatas): pin explícito; o Dependabot
       # (grupo actions) atualiza a versão.
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           enable-cache: true
 
@@ -80,7 +80,7 @@ jobs:
 
       # Sem tag móvel "v10" (só versões exatas): pin explícito; o Dependabot
       # (grupo actions) atualiza a versão.
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@v10.3.2
         with:
           enable-cache: true
 
