@@ -60,7 +60,7 @@ The authoritative block is the HTML comment near the top of `index.html` (`VERSI
 - the running-head version link (`.version`), its release URL, and the colophon version;
 - the diagnostics ledger (`Release`, `Tests`, `CI`, `License`, `Distribution`);
 - `meta`, Open Graph, Twitter and JSON-LD copy if they mention a release;
-- JSON-LD `softwareVersion` (currently `"0.3.1"`);
+- JSON-LD `softwareVersion` (currently `"0.4.0"`);
 - the version in the Open Graph source and the exported PNG.
 
 Nothing is fetched from the GitHub API at runtime, and there are no star counters or analytics.
