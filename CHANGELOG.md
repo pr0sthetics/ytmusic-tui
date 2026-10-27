@@ -6,14 +6,37 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.4.0] - 2026-10-27
+
 ### Adicionado
 
+- **Fila de reprodução (P01/P03):** modelo puro em `tui/queue.py` (sem
+  Textual) com índice, repeat `off`/`all`/`one` e shuffle; o controller usa
+  a fila para next/previous/auto-next, e a lista visível (busca, álbum,
+  biblioteca ou playlist) vira a fila a partir da faixa escolhida. O shuffle
+  preserva a faixa atual; desligá-lo restaura a ordem original.
+- **Modal da fila (P01):** `f` abre a fila com a faixa atual marcada (`▶`);
+  `Enter`/clique toca, `Delete` remove, `Shift+↑`/`Shift+↓` reordenam e
+  `Esc` fecha. O modal acompanha mudanças da fila (auto-next/rádio) sem
+  fechar.
+- **Shuffle e repeat (P03):** `s` liga/desliga o shuffle e `R` cicla repeat
+  off → all → one; a barra do player mostra `🔀`, `🔁` e `🔂` quando ativos.
+- **Seek, volume e mudo (P02):** `,`/`.` recuam/avançam 5 s, `+`/`-` mudam o
+  volume em 5 pontos e `m` alterna o mudo; a barra reflete volume e mudo na
+  hora, e o player aplica o volume guardado mesmo antes de o handle existir.
+- **Parar e reiniciar (P03):** `x` para a reprodução mantendo a fila (o
+  `Espaço` retoma a faixa atual); `←` reinicia a faixa se ela já passou de
+  3 s — antes disso, volta para a anterior.
 - **Rádio automática (P05):** ao fim da fila (repeat `off`), o app continua
   com uma faixa parecida e popular da rádio do YouTube Music. A busca roda
   em background, ignora a semente/indisponíveis/últimas 50 tocadas e cada
   faixa vira a semente da próxima. A opção `auto_similar` (padrão `true`)
   fica na aba Config; falha de recomendação só mostra um toast e mantém a
   fila. Não há home personalizada nem playlist gerada.
+- **Site (documentação):** o CSS servido passa a ser gerado a partir de
+  `site/assets/styles.src.css` versionado e minificado; os caps de teclado
+  usam `Right`/`Left` e `Shift+Up`/`Shift+Down` (fora dos subsets das fontes)
+  e o wordmark preserva `ytmusic-tui(1)` no nome acessível.
 
 ### Corrigido
 

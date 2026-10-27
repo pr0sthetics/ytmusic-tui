@@ -42,6 +42,9 @@ show_notifications = true
 # Reproduzir próxima música automaticamente ao finalizar
 auto_play_next = true
 
+# Ao fim da fila (repeat desligado), continuar com músicas parecidas (rádio)
+auto_similar = true
+
 # Dica: as opções da aba "Config" do app são gravadas neste mesmo arquivo.
 
 # =============================================================================
