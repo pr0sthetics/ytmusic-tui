@@ -6,6 +6,7 @@ aqui; telas e controllers importam daqui. Sem framework de i18n: o objetivo
 """
 
 from collections.abc import Iterable
+from typing import Any
 
 from textual.binding import Binding, BindingType
 
@@ -43,6 +44,12 @@ _KEY_NAMES = {
     "tab": "Tab",
     "backspace": "Backspace",
     "delete": "Delete",
+    # Fase 2/P02: nomes do Textual para as teclas de seek/volume.
+    "comma": ",",
+    "full_stop": ".",
+    "plus": "+",
+    "equals_sign": "+",
+    "minus": "-",
 }
 
 
@@ -336,6 +343,36 @@ PLAYLIST_RENAME_FAILED = "Não foi possível renomear — a playlist sumiu ou é
 PLAYLIST_DELETE_FAILED = "Não foi possível excluir — a playlist sumiu ou é de sistema."
 PLAYLIST_REORDER_FAILED = "Não foi possível reordenar a playlist."
 PLAYLISTS_UNAVAILABLE_TOAST = "⚠️ Falha ao carregar as playlists — detalhes no log"
+
+# ===== Fila de reprodução (Fase 2/P01) =====
+
+QUEUE_TITLE = "Fila de reprodução"
+QUEUE_EMPTY_TEXT = "A fila está vazia.\nToque uma faixa na Busca, no Álbum ou na Biblioteca."
+#: Marcador da faixa em reprodução e recuo das demais linhas.
+QUEUE_CURRENT_MARK = "▶"
+QUEUE_ITEM_MARK = " "
+
+
+def queue_item_label(item: Any, mark: str) -> str:
+    """Linha da fila: ``▶ título — artista`` (o título nunca fica vazio)."""
+    title = str(item.info.title or item.info.video_id or "faixa sem título")
+    artist = str(item.info.artist or "")
+    return f"{mark} {title} — {artist}" if artist else f"{mark} {title}"
+
+
+SHUFFLE_ON = "🔀 Shuffle ligado"
+SHUFFLE_OFF = "🔀 Shuffle desligado"
+
+#: Rádio automática (P05): feedback honesto enquanto a fila está no fim.
+SIMILAR_SEARCHING = "📻 Buscando músicas parecidas…"
+SIMILAR_UNAVAILABLE = "📻 Sem recomendação agora — a fila parou"
+
+#: Texto por modo de repetição (chave = valor do ``RepeatMode``).
+REPEAT_MESSAGES = {
+    "off": "🔁 Repetição desligada",
+    "all": "🔁 Repetir a fila",
+    "one": "🔂 Repetir a faixa",
+}
 
 
 def playlist_label(name: str, track_count: int) -> str:

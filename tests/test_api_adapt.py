@@ -15,6 +15,7 @@ from ytmusic_tui.api.adapt import (
     _ensure_result_list,
     album_detail_from_raw,
     album_from_raw,
+    radio_tracks_from_raw,
     search_result_from_raws,
     track_from_raw,
 )
@@ -114,6 +115,72 @@ def test_track_campo_invalido(raw, snippet):
     """Presente-com-tipo-errado é resposta fora do contrato, com o detalhe."""
     with pytest.raises(InvalidResponseError, match=re.escape(snippet)):
         track_from_raw(raw)
+
+
+def test_track_parseia_duracao_quando_segundos_ausentes():
+    """``duration`` textual vira segundos quando o serviço não manda o int."""
+    track = track_from_raw({"videoId": "v", "duration": "1:02:03"})
+
+    assert track.duration_text == "1:02:03"
+    assert track.duration_seconds == 3723
+
+
+def test_track_duracao_textual_invalida_vira_none():
+    track = track_from_raw({"videoId": "v", "duration": "abc"})
+
+    assert track.duration_seconds is None
+
+
+# ===== Rádio (P05) =====
+
+
+def test_radio_tracks_from_raw_adapts_length_and_singular_thumbnail():
+    """A rádio usa ``length`` e ``thumbnail``; o modelo sai igual ao da busca."""
+    tracks = radio_tracks_from_raw(
+        {
+            "tracks": [
+                {
+                    "videoId": "rv1",
+                    "title": "Parecida",
+                    "length": "4:04",
+                    "artists": [{"name": "a-ha"}],
+                    "thumbnail": [{"url": "http://x/small.jpg"}, {"url": "http://x/big.jpg"}],
+                },
+                {"title": "sem videoId"},  # não tocável
+            ]
+        }
+    )
+
+    assert tracks == (
+        Track(
+            video_id="rv1",
+            title="Parecida",
+            artists=("a-ha",),
+            duration_text="4:04",
+            duration_seconds=244,
+            thumbnail_url="http://x/big.jpg",
+        ),
+    )
+
+
+def test_radio_tracks_from_raw_sem_tracks_e_lista_vazia():
+    """Campo ausente é explícito (tupla vazia), como no resto da fronteira."""
+    assert radio_tracks_from_raw({}) == ()
+    assert radio_tracks_from_raw({"tracks": None}) == ()
+    assert radio_tracks_from_raw({"tracks": []}) == ()
+
+
+@pytest.mark.parametrize(
+    "raw, snippet",
+    [
+        ([], "esperado dict, recebido list"),
+        ({"tracks": "x"}, "campo 'tracks' esperado lista, recebido str"),
+        ({"tracks": [1]}, "campo 'tracks[]' esperado dict, recebido int"),
+    ],
+)
+def test_radio_tracks_from_raw_forma_invalida(raw, snippet):
+    with pytest.raises(InvalidResponseError, match=re.escape(snippet)):
+        radio_tracks_from_raw(raw)
 
 
 # ===== Album e AlbumDetail =====

@@ -213,7 +213,7 @@ class YTMusicTUI(App):
         elif name == "play":
             np_bar.update_track(event.data.get("track", TrackInfo()))
             np_bar.update_state(PlayerState.PLAYING)
-            np_bar.update_volume(player.get_volume())
+            np_bar.update_volume(player.get_volume(), muted=player.is_muted())
         elif name == "pause":
             np_bar.update_state(PlayerState.PAUSED)
         elif name == "resume":
@@ -237,6 +237,15 @@ class YTMusicTUI(App):
                 event.data.get("position", 0),
                 event.data.get("duration", 0),
             )
+        elif name == "volume":
+            # P02: o mudo acompanha o volume no mesmo indicador — o evento
+            # carrega os dois para a barra não mostrar um estado só.
+            np_bar.update_volume(
+                int(event.data.get("volume", 0)),
+                muted=bool(event.data.get("muted", False)),
+            )
+        elif name == "mute":
+            np_bar.update_volume(player.get_volume(), muted=bool(event.data.get("muted", False)))
         elif name == "error":
             np_bar.update_state(PlayerState.ERROR)
             # T12-R5: falha do player em 3 partes (o detalhe já vem mascarado

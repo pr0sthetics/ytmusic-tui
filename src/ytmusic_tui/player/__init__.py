@@ -108,6 +108,12 @@ class MPVPlayer:
         self._observers_started = False
         self._last_position_emit = 0.0
         self._warned_missing_yt_dlp = False
+        #: Estado do volume/mute vive aqui, não só no mpv (Fase 2/P02): a UI
+        #: pode ajustar antes do handle existir e o ``start()`` aplica o que
+        #: foi pedido — antes isso era um no-op silencioso que a barra
+        #: mostrava como se tivesse valido.
+        self._volume = max(0, min(100, settings.mpv_volume))
+        self._muted = False
         #: Guarda de encerramento (T11-R2): depois do ``shutdown()``, eventos
         #: atrasados do handle morto são descartados; um novo ``start()``
         #: reabre a entrega.
@@ -122,11 +128,15 @@ class MPVPlayer:
         player_kwargs = {
             "vo": "null",  # Sem vídeo
             "audio_client_name": "ytmusic-tui",
-            "volume": settings.mpv_volume,
+            "volume": self._volume,
             "ytdl": True,
             "ytdl_format": self._ytdl_format(),
             "force_window": False,
-            "keep_open": True,
+            # O auto-next/rádio dependem de ``end-file`` com reason ``eof``.
+            # Com keep-open o mpv pausa no último frame e não emite o evento,
+            # então a fila nunca avança sozinha (regressão encontrada em uso
+            # real em 2026-10-26). Com idle, o handle continua vivo.
+            "keep_open": False,
             "idle": True,
             # Q19/T16: mensagens do mpv vão para o log interno (log_handler),
             # nunca direto no terminal — nada de texto cru por cima da TUI.
@@ -165,6 +175,12 @@ class MPVPlayer:
         locale.setlocale(locale.LC_NUMERIC, "C")
 
         self._mpv = mpv.MPV(log_handler=self._on_mpv_log, loglevel="warn", **player_kwargs)
+
+        # P02: o volume já vem no construtor; o mute é estado nosso e precisa
+        # ser reaplicado a cada handle novo (novo ``start()`` ou reinício).
+        if self._muted:
+            with contextlib.suppress(Exception):
+                self._mpv.mute = True
 
         # Configurar observadores
         self._setup_observers()
@@ -278,6 +294,13 @@ class MPVPlayer:
             # (T11-R3).
             if self._state == PlayerState.ERROR:
                 return
+            # Depois do fim natural (ou de um ``stop``) o mpv fica idle e
+            # ainda pode emitir ``pause=false`` ao descarregar a faixa. Isso
+            # não pode ressuscitar PLAYING: o estado ficaria inconsistente e
+            # o ``Espaço`` alternaria um handle sem faixa em vez de retomar a
+            # fila. Só um novo ``play`` sai de STOPPED.
+            if self._state == PlayerState.STOPPED:
+                return
             if value:
                 self._state = PlayerState.PAUSED
                 self._emit("pause", {})
@@ -376,6 +399,10 @@ class MPVPlayer:
             # pausada (e a barra mostrava "tocando").
             self._mpv.pause = False
 
+            # P02: a posição é da faixa, não do player — reusar o TrackInfo
+            # (ou vir de um objeto reciclado) não pode herdar o tempo antigo.
+            track_info.position = 0.0
+
             self._current_track = track_info
             self._state = PlayerState.PLAYING
             self._emit("play", {"track": track_info})
@@ -409,26 +436,77 @@ class MPVPlayer:
             self._current_track = None
             self._emit("stop", {})
 
-    def seek(self, position: float) -> None:
-        """Busca para posição (segundos)."""
-        if self._mpv and self._current_track:
-            self._mpv.seek(position, reference="absolute")
+    def seek(self, position: float) -> bool:
+        """Busca para a posição em segundos (clampada à faixa).
 
-    def seek_relative(self, seconds: float) -> None:
-        """Busca relativa (segundos)."""
-        if self._mpv:
-            self._mpv.seek(seconds, reference="relative")
+        Devolve ``False`` sem faixa carregada — a UI mostra um aviso em vez
+        de um no-op mudo. O teto é ``duração - 0.5`` para o seek não disparar
+        o fim da faixa por arredondamento.
+        """
+        if self._mpv is None or self._current_track is None:
+            return False
+        duration = float(self._current_track.duration or 0.0)
+        target = max(0.0, float(position))
+        if duration > 0:
+            target = min(target, max(0.0, duration - 0.5))
+        with contextlib.suppress(Exception):
+            self._mpv.seek(target, reference="absolute")
+            return True
+        return False
 
-    def set_volume(self, volume: int) -> None:
-        """Define volume (0-100)."""
-        if self._mpv:
-            self._mpv.volume = max(0, min(100, volume))
+    def seek_relative(self, seconds: float) -> bool:
+        """Busca relativa em segundos (``±5`` das teclas), com clamp.
+
+        Usa o alvo absoluto calculado a partir da posição atual: assim o
+        clamp de início/fim vale e a UI pode refletir a posição nova na hora.
+        """
+        if self._mpv is None or self._current_track is None:
+            return False
+        return self.seek(self.get_position() + float(seconds))
+
+    def get_position(self) -> float:
+        """Posição atual em segundos (0.0 sem faixa ou sem handle)."""
+        if self._mpv is not None:
+            with contextlib.suppress(Exception):
+                value = self._mpv.time_pos
+                if value is not None:
+                    return float(value)
+        if self._current_track is not None:
+            return float(self._current_track.position or 0.0)
+        return 0.0
+
+    def set_volume(self, volume: int) -> int:
+        """Define o volume (0-100); devolve o valor aplicado.
+
+        P02: guarda o valor mesmo sem handle — ``start()`` o aplica depois.
+        """
+        self._volume = max(0, min(100, int(volume)))
+        if self._mpv is not None:
+            with contextlib.suppress(Exception):
+                self._mpv.volume = self._volume
+        self._emit("volume", {"volume": self._volume, "muted": self._muted})
+        return self._volume
 
     def get_volume(self) -> int:
-        """Obtém volume atual."""
-        if self._mpv:
-            return int(self._mpv.volume or 0)
-        return settings.mpv_volume
+        """Volume em vigor (0-100)."""
+        return self._volume
+
+    def set_muted(self, muted: bool) -> bool:
+        """Define o mute; devolve o estado aplicado."""
+        self._muted = bool(muted)
+        if self._mpv is not None:
+            with contextlib.suppress(Exception):
+                self._mpv.mute = self._muted
+        self._emit("mute", {"muted": self._muted})
+        return self._muted
+
+    def toggle_mute(self) -> bool:
+        """Alterna o mute (tecla ``m``); devolve o estado novo."""
+        return self.set_muted(not self._muted)
+
+    def is_muted(self) -> bool:
+        """True quando o áudio está mudo."""
+        return self._muted
 
     def next_track(self) -> None:
         """Próxima faixa (emite evento para queue manager)."""

@@ -38,7 +38,7 @@ from ytmusic_tui.config import (
 from ytmusic_tui.diagnostics import mask_diagnostics
 from ytmusic_tui.download import download_manager
 from ytmusic_tui.errors import ConfigError
-from ytmusic_tui.player import TrackInfo, player
+from ytmusic_tui.player import player
 from ytmusic_tui.tui.dialogs import HelpScreen
 from ytmusic_tui.tui.download_controller import DownloadController
 from ytmusic_tui.tui.library_controller import LIBRARY_EMPTY_TEXT, LibraryController
@@ -67,6 +67,8 @@ from ytmusic_tui.tui.messages import (
 )
 from ytmusic_tui.tui.playback_controller import PlaybackController
 from ytmusic_tui.tui.playlist_controller import PlaylistController
+from ytmusic_tui.tui.queue import PlaybackQueue
+from ytmusic_tui.tui.similar import SimilarPicker
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
@@ -132,6 +134,15 @@ class MainScreen(
         Binding("space", "play_pause", "Play/Pause"),
         Binding("right", "next", "Próxima"),
         Binding("left", "previous_or_back", "Anterior"),
+        Binding("comma", "seek_backward", "Voltar 5s"),
+        Binding("full_stop", "seek_forward", "Avançar 5s"),
+        Binding("plus,equals_sign", "volume_up", "Aumentar volume"),
+        Binding("minus", "volume_down", "Diminuir volume"),
+        Binding("m", "mute", "Mudo"),
+        Binding("x", "stop", "Parar"),
+        Binding("f", "show_queue", "Fila"),
+        Binding("s", "toggle_shuffle", "Shuffle"),
+        Binding("R", "cycle_repeat", "Repetir"),
         Binding("ctrl+d", "download", "Baixar", priority=True),
         Binding("l", "like", "Curtir"),
         Binding("a", "download_album", "Baixar álbum"),
@@ -155,9 +166,14 @@ class MainScreen(
 
     def __init__(self) -> None:
         super().__init__()
-        self._play_queue: list[TrackInfo] = []
-        self._play_index: int = -1
+        # Fila de reprodução (Fase 2/P01): a política vive em ``queue``; a
+        # tela só reage a ela e é dona de *quando* tocar.
+        self.queue: PlaybackQueue = PlaybackQueue()
         self._last_auto_next: float = 0.0
+        # Rádio automática (Fase 2/P05): escolha de parecidas e época da
+        # busca em background — resultado antigo é descartado pelo token.
+        self.similar: SimilarPicker = SimilarPicker()
+        self._similar_token: int = 0
         # Álbum aberto na aba dedicada (modelo interno do T10-R1); usado pelo "a".
         self._current_album: AlbumDetail | None = None
         # Nova busca marca o abort de retry da anterior (T10-R3, A1); None = sem busca.
@@ -276,6 +292,11 @@ class MainScreen(
                             "Auto-play próxima",
                             value=settings.auto_play_next,
                             id="setting-autoplay",
+                        )
+                        yield Checkbox(
+                            "Rádio automática ao fim da fila",
+                            value=settings.auto_similar,
+                            id="setting-similar",
                         )
                     with Collapsible(title="Dependências", collapsed=True):
                         yield Static(render_dependencies(), id="dependency-status")
@@ -640,6 +661,10 @@ class MainScreen(
             if event.value == settings.auto_play_next:
                 return
             self._save_setting(auto_play_next=event.value)
+        elif event.checkbox.id == "setting-similar":
+            if event.value == settings.auto_similar:
+                return
+            self._save_setting(auto_similar=event.value)
 
     def _save_setting(self, **updates: Any) -> bool:
         """Grava uma alteração da Config; ``True`` = gravou, ``False`` = erro.
@@ -701,7 +726,10 @@ class MainScreen(
         if isinstance(view, SongListView):
             song = view.get_selected_song()
             if song and view.id:
-                self.play_song(song, view_id=view.id)
+                # A origem alimenta o histórico: a lista de faixas do álbum
+                # aberto é ``album``; o resultado de busca é ``search``.
+                source = "album" if view.id == "album-songs" else "search"
+                self.play_song(song, view_id=view.id, source=source)
         elif isinstance(view, AlbumListView):
             album = view.get_selected_album()
             if album:

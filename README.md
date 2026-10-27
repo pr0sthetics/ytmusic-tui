@@ -6,13 +6,13 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-637%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-712%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
 > ## 🤖 AI-native, human-verified
 >
-> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **641 automated tests** (637 run offline by default) and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **716 automated tests** (712 run offline by default) and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -20,6 +20,10 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 ## ✨ Features
 
 - 🎵 **Music playback** via mpv (direct streaming, selectable quality)
+- 🎶 **Playback queue**: the queue follows the list you started from (search, album, library or playlist); `f` opens a modal to jump to a track, remove it or reorder the queue
+- ⏯️ **Keyboard player controls**: `,`/`.` seek ∓5 s, `+`/`-` change the volume by 5, `m` mutes, `x` stops (the queue is kept — `Space` resumes) and `←` restarts the current track after the first 3 seconds
+- 🔀 **Shuffle and repeat**: `s` toggles shuffle and `R` cycles repeat off → all → one; the player bar shows the active modes
+- 📻 **Automatic radio at the end of the queue**: when the last track ends (repeat off), playback continues with related popular tracks from YouTube Music's song radio; each track seeds the next, with session dedupe — no personalized home or generated playlist
 - 🔍 **Search** for songs (25), videos (20) and albums (15) in parallel, with type and year on albums (`💿 My Dear Melancholy, — The Weeknd  (EP, 2018)`)
 - 💿 **Album tab**: open an album from the search and see tracks, artist and year — `Enter` plays (with a continuous queue) and `A` downloads the whole album, **skipping tracks already downloaded**
 - 📥 **Download** via yt-dlp + ffmpeg: best stream available → MP3 320 kbps (or opus/m4a/flac), with ID3 tags and **embedded cover art**
@@ -284,27 +288,39 @@ python main.py           # straight from the source tree (uses src/, no install)
 
 1. `Ctrl+S` to go to the search → type and press `Enter`
 2. `Enter` on a song (or video) plays it; `p` adds the highlighted result to a playlist (it must already be downloaded); `→` / `←` move through the queue
-3. `Enter` on an album opens the 💿 tab with its tracks; `A` (or the button) downloads the whole album
-4. `Ctrl+D` downloads the track now playing — follow it on the 📥 Downloads tab
-5. `Ctrl+L` opens the local library — now **by album**: `Enter` expands an album (tracks in order; `t` plays it), `p` adds the selected track and `Shift+P` adds the whole album (open or just highlighted) to a playlist
-6. The 🎵 **Playlists** tab (the first one) lists your local playlists: `Enter` opens one (tracks in position order; `Enter` plays with the queue following the playlist), `N` creates, `E` renames, `Delete` deletes with confirmation; inside a playlist, `Shift+↑`/`Shift+↓` reorder and `Delete` removes a track
+3. `f` opens the queue: `Enter` plays the selected track, `Delete` removes it, `Shift+↑`/`Shift+↓` reorder and `Esc` closes
+4. `s` toggles shuffle and `R` cycles repeat (off → all → one); the player bar shows the active modes
+5. `Enter` on an album opens the 💿 tab with its tracks; `A` (or the button) downloads the whole album
+6. `Ctrl+D` downloads the track now playing — follow it on the 📥 Downloads tab
+7. `Ctrl+L` opens the local library — now **by album**: `Enter` expands an album (tracks in order; `t` plays it), `p` adds the selected track and `Shift+P` adds the whole album (open or just highlighted) to a playlist
+8. The 🎵 **Playlists** tab (the first one) lists your local playlists: `Enter` opens one (tracks in position order; `Enter` plays with the queue following the playlist), `N` creates, `E` renames, `Delete` deletes with confirmation; inside a playlist, `Shift+↑`/`Shift+↓` reorder and `Delete` removes a track
+9. When the queue ends (repeat off, with `auto_play_next` and `auto_similar` on), the radio continues with related tracks; `←` goes back to the track that just ended (or closes an open library album/playlist first), and `x` stops (the queue is kept — `Space` resumes)
+
+The queue, shuffle and repeat are **session-only**: closing the app loses them (the library and the downloads stay). `←` restarts the current track after the first 3 seconds; before that, it goes to the previous one (on the first track, it restarts).
 
 ### Keyboard shortcuts
 
 | Key | Action |
 |-------|------|
 | `Ctrl+S` | Go to the search |
-| `Enter` | Play track / open selected album; library: expand album; playlists: open playlist |
-| `Space` | Play/Pause |
-| `→` / `←` | Next / previous (inside a library album or an open playlist, `←` goes back one level) |
+| `Enter` | Play track / open selected album; library: expand album; playlists: open playlist; queue: play the selected track |
+| `Space` | Play/Pause; after `x` (stop), resumes the current track |
+| `→` / `←` | Next / previous (`←` restarts the current track after 3 s; inside a library album or an open playlist, `←` goes back one level) |
+| `,` / `.` | Seek backward / forward 5 s |
+| `+` / `-` | Volume up / down by 5 |
+| `m` | Mute / unmute |
+| `x` | Stop playback (keeps the queue) |
+| `f` | Open the playback queue — jump to, remove or reorder tracks |
+| `s` | Toggle shuffle (indicator in the player bar) |
+| `R` | Cycle repeat: off → all → one (indicator in the player bar) |
 | `Ctrl+D` | Download the track now playing |
 | `A` | Download the whole album (album tab) |
 | `T` | Play the open album from the library |
 | `P` | Add the selected library track, the highlighted search result, or the current track to a playlist |
 | `Shift+P` | Add the open or highlighted library album to a playlist |
 | `N` / `E` | Playlists: new / rename |
-| `Delete` | Delete the selected playlist (with confirmation); inside a playlist, remove the selected track |
-| `Shift+↑` / `Shift+↓` | Move the selected track inside an open playlist |
+| `Delete` | Delete the selected playlist (with confirmation); inside a playlist or the queue, remove the selected track |
+| `Shift+↑` / `Shift+↓` | Move the selected track inside the queue (when it's open) or an open playlist |
 | `Esc` | Back from the album to the search; back one level in the library/playlist |
 | `L` | Like / unlike (local, for downloaded tracks) |
 | `Ctrl+L` | Go to the library |
@@ -330,6 +346,7 @@ The app's **Config** tab edits the main options and writes to that same file rig
 | `embed_metadata` | `true` | ID3 tags + embedded cover art in the files |
 | `show_notifications` | `true` | Toast notifications |
 | `auto_play_next` | `true` | Automatically play the next track in the queue |
+| `auto_similar` | `true` | At the end of the queue with repeat off, continue with related tracks (radio; requires `auto_play_next`) |
 | `library_db_name` | `"library.db"` | SQLite file name of the local library |
 | `config_dir`, `data_dir`, `cache_dir` | XDG | Internal directories (advanced, usually don't touch) |
 
@@ -419,10 +436,14 @@ than the app).
 - The real quality depends on the source: YouTube Music typically serves **~128–256 kbps** audio (AAC/Opus); the "MP3 320" is a conversion — it doesn't create quality, but it standardizes the files
 - Downloads depend on yt-dlp; when YouTube changes something, updating yt-dlp in the same environment (or reinstalling/updating the app) usually fixes it
 
+**Playback:**
+- The queue and its shuffle/repeat modes live in memory — they are not restored on the next run; the initial volume comes from the config, and keyboard volume/mute changes last for the session
+- No gapless playback or crossfade; the equalizer is on the roadmap
+
 **Young project:**
 - Interface and messages **in Portuguese**
-- **AI-native, human-verified** (note at the top): the 637 offline tests cover the main flow, but the occasional bug is expected
-- No MPRIS, lyrics, equalizer or automatic radio (Roadmap). Built-in **themes** are available from the command palette and apply to the current session; custom theme files are not supported yet.
+- **AI-native, human-verified** (note at the top): the 712 offline tests cover the main flow, but the occasional bug is expected
+- No MPRIS, lyrics or equalizer (Roadmap). Automatic radio continues the queue with related tracks; it is not a personalized home or a generated playlist. Built-in **themes** are available from the command palette and apply to the current session; custom theme files are not supported yet.
 
 ## 🆘 When something breaks (and it's not the app)
 
@@ -481,9 +502,12 @@ ytmusic-tui/
 │   └── tui/                   # Textual interface
 │       ├── app.py             # App lifecycle + main() (app.tcss next to it)
 │       ├── screens.py         # MainScreen: tabs, shortcuts and navigation
+│       ├── dialogs.py         # Modals: help, queue, confirmation, name, picker
+│       ├── queue.py           # Playback queue (repeat, shuffle, edits)
+│       ├── similar.py         # Picks the next radio track (dedupe, seed chain)
 │       ├── widgets.py         # Custom widgets (lists, player bar)
 │       └── *_controller.py    # Playback, downloads, library and playlists (mixins)
-└── tests/                     # 637 offline tests in layers (L1 mocks + L2 local) + 4 opt-in
+└── tests/                     # 712 offline tests in layers (L1 mocks + L2 local) + 4 opt-in
 ```
 
 ## 🤖 Development methodology & AI stack
@@ -541,7 +565,7 @@ uv export --frozen --no-emit-project --extra dev --no-hashes -o /tmp/ytm-locked.
 
 **[uv](https://docs.astral.sh/uv/)** is the development/CI tool: `uv.lock` pins the exact runtime + dev versions and CI installs from it (`uv sync --locked`). If `pyproject.toml` and `uv.lock` drift apart, `--locked` fails on purpose — after editing dependencies, run `uv lock`. No uv? `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"` still works (without the lockfile — CI is what uses it).
 
-The tests cover the TUI (via Textual's `run_test`), API, player, downloads and library, in two offline layers: **L1** (unit/behavior, with thin mocks) and **L2** (`tests/integration_local/` — local integration with the worker, reservation/temporary files and a real database, plus "real" fakes: yt-dlp stubbed at the late import and an **executable** ffmpeg on PATH). **No test in the standard suite touches the network or the real player** — L2 blocks `socket` on purpose, so any connection fails immediately with a clear message; branch coverage (command above) is informative, with no threshold.
+The tests cover the TUI (via Textual's `run_test`), API, player, downloads and library, in two offline layers: **L1** (unit/behavior, with thin mocks) and **L2** (`tests/integration_local/` — local integration with the worker, reservation/temporary files and a real database, plus "real" fakes: yt-dlp stubbed at the late import and an **executable** ffmpeg on PATH). **No test in the standard suite touches the network** — L2 blocks `socket` on purpose, so any connection fails immediately with a clear message; player tests that use real libmpv play only local silent files. Branch coverage (command above) is informative, with no threshold.
 
 Two more test layers are **opt-in**, never run in CI:
 
@@ -562,7 +586,6 @@ Looking to update a **local installation** (pipx/pip), pin an older version or u
 
 ## 🗺️ Roadmap
 
-- [ ] Automatic radio/mix (infinite autoplay)
 - [ ] Synced lyrics
 - [ ] MPRIS control (desktop integration)
 - [ ] Equalizer

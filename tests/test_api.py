@@ -27,6 +27,7 @@ class _FakeYTMusic:
 
     def __init__(self, *args, **kwargs):
         self.searches = []
+        self.watch_calls = []
 
     def search(self, query, filter=None, limit=None, ignore_spelling=False):
         self.searches.append(filter)
@@ -56,6 +57,20 @@ class _FakeYTMusic:
             "tracks": [
                 {"videoId": "t1", "title": "Faixa", "artists": [{"name": "Artista"}]},
             ],
+        }
+
+    def get_watch_playlist(self, videoId=None, radio=False, limit=25):
+        self.watch_calls.append((videoId, radio, limit))
+        return {
+            "tracks": [
+                {
+                    "videoId": "radio-1",
+                    "title": "Parecida",
+                    "length": "3:00",
+                    "artists": [{"name": "Artista"}],
+                    "thumbnail": [{"url": "http://x/radio.jpg"}],
+                }
+            ]
         }
 
 
@@ -151,6 +166,23 @@ def test_get_album_returns_typed_detail(fake_ytmusic):
     assert details.title == "Álbum teste"
     assert details.track_count == 1
     assert [t.video_id for t in details.tracks] == ["t1"]
+
+
+def test_get_radio_tracks_typed_and_passes_radio_parameters(fake_ytmusic):
+    """P05: a rádio sai tipada e o wrapper pede ``radio=True`` à watch playlist."""
+    api = YTMusicAPI()
+    assert api.initialize() is True
+    client = api._require_client()
+
+    tracks = api.get_radio_tracks("seed", limit=7)
+
+    assert isinstance(tracks, tuple)
+    assert len(tracks) == 1
+    assert isinstance(tracks[0], Track)
+    assert tracks[0].video_id == "radio-1"
+    assert tracks[0].duration_seconds == 180
+    assert tracks[0].thumbnail_url == "http://x/radio.jpg"
+    assert client.watch_calls == [("seed", True, 7)]
 
 
 def test_get_stream_url_delega_para_o_modulo_folha():

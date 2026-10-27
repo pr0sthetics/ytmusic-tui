@@ -1,10 +1,12 @@
 """Wrapper para API do YouTube Music usando ytmusicapi (T10-R1/R3).
 
 Cliente anônimo (sem login): apenas os métodos que o app usa são expostos —
-``search_catalog``, ``get_album`` e ``get_stream_url``. Os métodos sem
-consumidor (``search`` genérico, get_song/artist/playlist/watch_playlist,
-home e moods) foram removidos no T10-R1 (Q-A): se um recurso precisar deles,
-eles voltam tipados, dirigidos pelo uso real.
+``search_catalog``, ``get_album``, ``get_radio_tracks`` e
+``get_stream_url``. Os métodos sem consumidor (``search`` genérico,
+get_song/artist/playlist, home e moods) foram removidos no T10-R1 (Q-A): se
+um recurso precisar deles, eles voltam tipados, dirigidos pelo uso real.
+``get_watch_playlist`` voltou como ``get_radio_tracks`` para a rádio da fila
+(P05).
 
 Nenhuma camada acima de ``api/`` vê objeto do ytmusicapi: as respostas cruas
 viram modelos internos (``api.models``) nos adaptadores (``api.adapt``) —
@@ -39,9 +41,13 @@ from typing import TypeVar, cast
 import requests
 from ytmusicapi import YTMusic
 
-from ytmusic_tui.api.adapt import album_detail_from_raw, search_result_from_raws
+from ytmusic_tui.api.adapt import (
+    album_detail_from_raw,
+    radio_tracks_from_raw,
+    search_result_from_raws,
+)
 from ytmusic_tui.api.cache import ResponseCache, cache_key
-from ytmusic_tui.api.models import AlbumDetail, SearchResult
+from ytmusic_tui.api.models import AlbumDetail, SearchResult, Track
 from ytmusic_tui.api.retry import RetryPolicy, call_with_retry
 from ytmusic_tui.config import settings
 from ytmusic_tui.errors import InvalidResponseError
@@ -283,6 +289,26 @@ class YTMusicAPI:
         detail = album_detail_from_raw(raw)
         cache.put("album", key, detail.to_payload())
         return detail
+
+    def get_radio_tracks(self, video_id: str, limit: int = 25) -> tuple[Track, ...]:
+        """Faixas da rádio da música, na ordem de relevância do serviço.
+
+        É o "song radio" do YouTube Music: a mesma lista que o serviço usaria
+        para continuar a partir desta faixa. A ordem chega pronta do serviço
+        (relevância + popularidade); a camada de cima só aplica dedupe. Sem
+        ``should_abort``: a chamada roda num worker de background e é curta
+        (uma requisição), como ``get_album``; uma troca de faixa descarta o
+        resultado por época no controller.
+        """
+        raw = self._call(
+            lambda: self._require_client().get_watch_playlist(
+                videoId=video_id,
+                radio=True,
+                limit=limit,
+            ),
+            context=f"rádio de {video_id}",
+        )
+        return radio_tracks_from_raw(raw)
 
     def get_stream_url(self, video_id: str) -> str:
         """URL de watch para reprodução/download via yt-dlp.

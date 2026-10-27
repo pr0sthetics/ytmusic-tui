@@ -19,12 +19,14 @@ import os
 import signal
 import threading
 import time
+import wave
 from pathlib import Path
 
 import pytest
 from textual.widgets import Button, Static, TabbedContent
 
-from ytmusic_tui.player import PlayerEvent, TrackInfo, player
+import ytmusic_tui.player as player_module
+from ytmusic_tui.player import PlayerEvent, PlayerState, TrackInfo, player
 from ytmusic_tui.tui.app import YTMusicTUI
 from ytmusic_tui.tui.widgets import NowPlayingBar
 
@@ -37,13 +39,26 @@ sleep 300
 
 
 @pytest.fixture
-def real_player():
+def real_player(monkeypatch):
     """Singleton do player com libmpv REAL, isolado por teste.
+
+    O handle usa ``ao=null``: o runner do CI não tem device de áudio e o mpv
+    falhava antes do EOF (``ended``/``error``), sem emitir ``track_ended``.
+    O áudio nulo mantém o teste hermético e deixa o mpv chegar ao fim natural
+    da faixa — que é justamente o comportamento sob teste.
 
     O teardown garante ``shutdown()`` (nenhum handle fica vivo entre testes)
     e remove callbacks registrados AQUI — a lista global não acumula sonda
     de teste (T11-R2: nada de callback morto chamado).
     """
+    original_mpv = player_module.mpv.MPV
+
+    class _NullAudioMPV(original_mpv):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("ao", "null")
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(player_module.mpv, "MPV", _NullAudioMPV)
     instance = player
     before = list(instance._callbacks)
     try:
@@ -71,6 +86,16 @@ def _wait_for_file(path: Path, timeout: float) -> None:
             return
         time.sleep(0.05)
     pytest.fail(f"{path.name} não apareceu a tempo (o fake yt-dlp não rodou)")
+
+
+def _write_silent_wav(path: Path, seconds: float = 0.5) -> None:
+    """WAV local e hermético para o mpv real chegar ao EOF sozinho."""
+    rate = 8000
+    with wave.open(str(path), "w") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(rate)
+        stream.writeframes(b"\x00\x00" * int(rate * seconds))
 
 
 def test_shutdown_reaps_the_ytdl_hook_child(real_player, monkeypatch, tmp_path):
@@ -140,6 +165,36 @@ def test_real_handle_teardown_drops_events_without_crash(real_player, tmp_path):
     time.sleep(0.3)  # janela para eventos atrasados do handle morto (se houvesse)
 
     assert len(events) == settled
+
+
+def test_real_playback_end_emits_track_ended(real_player, tmp_path):
+    """Fim natural no mpv real precisa emitir ``track_ended``.
+
+    Regressão de 2026-10-26: com ``keep-open=yes`` o mpv pausava no último
+    frame e o auto-next/rádio nunca rodava. O WAV é silencioso e local —
+    nada de rede ou áudio audível.
+    """
+    audio = tmp_path / "curto.wav"
+    _write_silent_wav(audio)
+    events: list[str] = []
+    real_player.on_event(lambda e: events.append(e.event))
+
+    assert real_player.start() is True
+    assert real_player.play(TrackInfo(video_id="LOCAL", source_url=str(audio)))
+
+    deadline = time.monotonic() + 8
+    while "track_ended" not in events and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert "track_ended" in events, f"mpv real não emitiu fim de faixa: {events}"
+
+    deadline = time.monotonic() + 3
+    while "ended" not in events and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert "ended" in events
+    deadline = time.monotonic() + 3
+    while real_player.state is not PlayerState.STOPPED and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert real_player.state is PlayerState.STOPPED
 
 
 @pytest.mark.asyncio

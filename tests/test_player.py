@@ -28,6 +28,9 @@ class _FakeMpv:
         self.stopped = 0
         self.pause = False
         self.volume = kwargs.get("volume", 100)
+        self.mute = False
+        #: ``time_pos`` do mpv (P02): None = o fake não expõe a propriedade.
+        self.time_pos: float | None = None
 
     def property_observer(self, name):
         def wrapper(fn):
@@ -517,6 +520,17 @@ def test_end_file_eof_decodes_to_track_ended(monkeypatch):
     assert events == ["track_ended"]
 
 
+def test_track_end_is_not_kept_open(monkeypatch):
+    """O fim da faixa precisa emitir ``end-file``/eof, não pausar no frame.
+
+    ``keep-open=yes`` faz o mpv parar no último frame e suprime o evento;
+    sem ``track_ended`` o auto-next e a rádio nunca são chamados.
+    """
+    _, fake = _started_player(monkeypatch)
+
+    assert fake.kwargs["keep_open"] is False
+
+
 def test_end_file_error_without_detail_has_clear_fallback(monkeypatch):
     """T11-R3: sem ``file_error``, a mensagem não vira "Erro desconhecido"."""
     p, fake = _started_player(monkeypatch)
@@ -617,24 +631,91 @@ def test_volume_is_clamped_to_0_100(monkeypatch):
     """T11-R3: volume clampado 0–100 no handle do mpv."""
     p, fake = _started_player(monkeypatch)
 
-    p.set_volume(150)
+    assert p.set_volume(150) == 100
     assert fake.volume == 100
-    p.set_volume(-5)
+    assert p.set_volume(-5) == 0
     assert fake.volume == 0
-    p.set_volume(42)
+    assert p.set_volume(42) == 42
     assert fake.volume == 42
     assert p.get_volume() == 42
 
 
-def test_seek_uses_absolute_and_relative_references(monkeypatch):
-    """T11-R3: seek absoluto × relativo com a referência certa no mpv."""
+def test_seek_uses_absolute_reference_with_clamp(monkeypatch):
+    """P02: seek absoluto com clamp em ``[0, duração - 0.5]``."""
     p, fake = _started_player(monkeypatch)
-    assert p.play(TrackInfo(video_id="v", source_url="http://s/a.mp3")) is True
+    assert p.play(TrackInfo(video_id="v", source_url="http://s/a.mp3", duration=100.0)) is True
 
-    p.seek(30.0)
-    p.seek_relative(-10.0)
+    fake.time_pos = 30.0
+    assert p.seek(30.0) is True
+    assert fake.seeks[-1] == (30.0, "absolute")
 
-    assert fake.seeks == [(30.0, "absolute"), (-10.0, "relative")]
+    # O relativo parte da posição atual e usa a mesma referência absoluta.
+    assert p.seek_relative(-10.0) is True
+    assert fake.seeks[-1] == (20.0, "absolute")
+
+    # Não passa do início.
+    fake.time_pos = 3.0
+    assert p.seek_relative(-10.0) is True
+    assert fake.seeks[-1] == (0.0, "absolute")
+
+    # Não encosta no fim da faixa.
+    fake.time_pos = 99.0
+    assert p.seek_relative(10.0) is True
+    assert fake.seeks[-1] == (99.5, "absolute")
+
+
+def test_seek_without_track_is_refused(monkeypatch):
+    """P02: sem faixa carregada o seek devolve False (a UI avisa)."""
+    p, fake = _started_player(monkeypatch)
+
+    assert p.seek(10.0) is False
+    assert p.seek_relative(5.0) is False
+    assert fake.seeks == []
+    assert p.get_position() == 0.0
+
+
+def test_play_resets_track_position(monkeypatch):
+    """P02: a posição é da faixa — tocar de novo não herda o tempo antigo."""
+    p, _ = _started_player(monkeypatch)
+    info = TrackInfo(video_id="v", source_url="http://s/a.mp3", position=77.0)
+
+    assert p.play(info) is True
+
+    assert info.position == 0.0
+
+
+def test_volume_and_mute_survive_start(monkeypatch):
+    """P02: ajustar antes do handle existir não é no-op silencioso."""
+    monkeypatch.setattr(player_mod.mpv, "MPV", _FakeMpv)
+    monkeypatch.setattr(player_mod.settings, "mpv_volume", 42)
+    monkeypatch.setattr(player_mod.settings, "mpv_audio_quality", "high")
+    p = MPVPlayer()
+
+    assert p.set_volume(70) == 70
+    assert p.toggle_mute() is True
+    assert p.start() is True
+    assert p._mpv is not None
+
+    assert p._mpv.volume == 70
+    assert p._mpv.mute is True
+    assert p.get_volume() == 70
+    assert p.is_muted() is True
+
+
+def test_volume_and_mute_emit_events(monkeypatch):
+    """P02: a barra reage ao volume/mute por evento, não só por chamada."""
+    p, _ = _started_player(monkeypatch)
+    events: list[tuple[str, dict]] = []
+    p.on_event(lambda event: events.append((event.event, event.data)))
+
+    p.set_volume(55)
+    p.toggle_mute()
+    p.toggle_mute()
+
+    assert events[0] == ("volume", {"volume": 55, "muted": False})
+    assert events[1] == ("mute", {"muted": True})
+    assert events[2] == ("mute", {"muted": False})
+    assert p.is_muted() is False
 
 
 if __name__ == "__main__":
