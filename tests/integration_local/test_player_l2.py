@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 from textual.widgets import Button, Static, TabbedContent
 
+import ytmusic_tui.player as player_module
 from ytmusic_tui.player import PlayerEvent, PlayerState, TrackInfo, player
 from ytmusic_tui.tui.app import YTMusicTUI
 from ytmusic_tui.tui.widgets import NowPlayingBar
@@ -38,13 +39,26 @@ sleep 300
 
 
 @pytest.fixture
-def real_player():
+def real_player(monkeypatch):
     """Singleton do player com libmpv REAL, isolado por teste.
+
+    O handle usa ``ao=null``: o runner do CI não tem device de áudio e o mpv
+    falhava antes do EOF (``ended``/``error``), sem emitir ``track_ended``.
+    O áudio nulo mantém o teste hermético e deixa o mpv chegar ao fim natural
+    da faixa — que é justamente o comportamento sob teste.
 
     O teardown garante ``shutdown()`` (nenhum handle fica vivo entre testes)
     e remove callbacks registrados AQUI — a lista global não acumula sonda
     de teste (T11-R2: nada de callback morto chamado).
     """
+    original_mpv = player_module.mpv.MPV
+
+    class _NullAudioMPV(original_mpv):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("ao", "null")
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(player_module.mpv, "MPV", _NullAudioMPV)
     instance = player
     before = list(instance._callbacks)
     try:
@@ -177,6 +191,9 @@ def test_real_playback_end_emits_track_ended(real_player, tmp_path):
     while "ended" not in events and time.monotonic() < deadline:
         time.sleep(0.05)
     assert "ended" in events
+    deadline = time.monotonic() + 3
+    while real_player.state is not PlayerState.STOPPED and time.monotonic() < deadline:
+        time.sleep(0.05)
     assert real_player.state is PlayerState.STOPPED
 
 

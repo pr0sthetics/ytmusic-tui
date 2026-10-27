@@ -294,6 +294,13 @@ class MPVPlayer:
             # (T11-R3).
             if self._state == PlayerState.ERROR:
                 return
+            # Depois do fim natural (ou de um ``stop``) o mpv fica idle e
+            # ainda pode emitir ``pause=false`` ao descarregar a faixa. Isso
+            # não pode ressuscitar PLAYING: o estado ficaria inconsistente e
+            # o ``Espaço`` alternaria um handle sem faixa em vez de retomar a
+            # fila. Só um novo ``play`` sai de STOPPED.
+            if self._state == PlayerState.STOPPED:
+                return
             if value:
                 self._state = PlayerState.PAUSED
                 self._emit("pause", {})

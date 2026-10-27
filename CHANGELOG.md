@@ -44,6 +44,13 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
   natural da faixa pausava no último frame sem emitir `track_ended`; a fila
   não avançava sozinha nem iniciava a rádio. Agora o fim da faixa emite o
   evento e o auto-play funciona com reprodução real.
+- **Estado ao fim/stop:** o `pause=false` que o mpv emite ao ficar idle não
+  reativa mais `PLAYING` depois do fim natural ou de `x`; o `Espaço` volta a
+  retomar a faixa/fila em vez de alternar um handle sem faixa.
+- **Teste do player real:** o handle do L2 usa `ao=null`, então o teste
+  chega ao EOF também em runner sem device de áudio (o CI falhava antes do
+  `track_ended`); a espera pelo estado `STOPPED` elimina a corrida com os
+  observadores do mpv.
 
 ## [0.3.2] - 2026-10-22
 
