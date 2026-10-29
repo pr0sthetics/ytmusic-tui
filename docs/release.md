@@ -72,9 +72,9 @@ uv lock --check
 uv run pytest -q
 ```
 
-**Critério:** tudo verde. No T16 a contagem de referência é
-**554 passed + 4 skipped** — contagem diferente na release é para
-investigar, nunca para "ajustar".
+**Critério:** tudo verde. A contagem de referência atual (v0.4.0) é
+**712 passed + 4 skipped** — contagem diferente na release é para
+investigar, nunca para "ajustar". Atualize esta referência a cada release.
 
 ### 3. Rodar L3/L4 definidos para a release (obrigatórios, locais)
 
