@@ -64,6 +64,12 @@ MAX_DOWNLOAD_QUALITY = 320
 AUDIO_QUALITY_VALUES: tuple[str, ...] = ("low", "medium", "high", "best")
 DOWNLOAD_FORMAT_VALUES: tuple[str, ...] = ("mp3", "opus", "m4a", "flac")
 
+#: Tema aplicado quando o config.toml não define ``theme`` ou traz um nome
+#: desconhecido. É um tema personalizado registrado pela TUI; o valor é
+#: compartilhado com ``tui.themes`` sem importar Textual no carregamento da
+#: configuração (o CLI ``doctor`` não precisa da biblioteca gráfica).
+DEFAULT_THEME = "github-dark"
+
 
 def _fsync_directory(directory: Path) -> None:
     """Sincroniza a entrada de diretório após o ``os.replace`` (best-effort).
@@ -200,6 +206,19 @@ class Settings(BaseSettings):
             f"use 'best' ou um inteiro entre {MIN_DOWNLOAD_QUALITY} e {MAX_DOWNLOAD_QUALITY} kbps"
         )
 
+    @field_validator("theme", mode="before")
+    @classmethod
+    def _normalize_theme(cls, value: object) -> str:
+        """Tema vazio vira o padrão; nome desconhecido é resolvido na TUI.
+
+        O catálogo de temas mora na camada TUI (importa Textual); validar
+        aqui exigiria carregar a interface em comandos que só querem ler a
+        configuração. Um nome desconhecido não é erro fatal: a TUI aplica o
+        padrão e o usuário corrige na aba 🎨 Temas.
+        """
+        text = str(value).strip()
+        return text or DEFAULT_THEME
+
     @field_validator("library_db_name")
     @classmethod
     def _validate_library_db_name(cls, value: str) -> str:
@@ -280,6 +299,10 @@ class Settings(BaseSettings):
     auto_similar: bool = Field(
         default=True,
         description="Ao fim da fila, continuar com músicas parecidas (rádio)",
+    )
+    theme: str = Field(
+        default=DEFAULT_THEME,
+        description="Tema da interface (aba 🎨 Temas)",
     )
 
     def __init__(self, **kwargs: Any) -> None:

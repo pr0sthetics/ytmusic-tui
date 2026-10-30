@@ -21,6 +21,7 @@ from textual.timer import Timer
 from textual.widgets import TabbedContent
 
 from ytmusic_tui.api import ytmusic
+from ytmusic_tui.config import settings
 from ytmusic_tui.download import download_manager
 from ytmusic_tui.library import db_manager
 from ytmusic_tui.library.errors import LibraryError
@@ -29,6 +30,7 @@ from ytmusic_tui.player import PlayerEvent, PlayerState, TrackInfo, player
 from ytmusic_tui.tui.dialogs import HelpScreen
 from ytmusic_tui.tui.messages import player_error
 from ytmusic_tui.tui.screens import MainScreen
+from ytmusic_tui.tui.themes import register_custom_themes, resolve_theme
 from ytmusic_tui.tui.widgets import NowPlayingBar
 from ytmusic_tui.versions import versions_summary
 
@@ -77,6 +79,11 @@ class YTMusicTUI(App):
 
     def on_mount(self) -> None:
         """Inicialização após montagem."""
+        # T18: registrar os temas do projeto e aplicar o tema salvo ANTES
+        # de montar a MainScreen — a interface nasce já com as cores certas.
+        # Um nome desconhecido no TOML cai no padrão sem impedir a abertura.
+        register_custom_themes(self)
+        self.theme = resolve_theme(settings.theme)
         # T13 (§13.1): primeiro registro da sessão — com versões, para o
         # log dizer sozinho QUAL combinação de app/Python/dependências rodou.
         log_event("tui.app", "app_start", versions_summary())

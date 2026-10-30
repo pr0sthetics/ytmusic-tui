@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import (
     Button,
@@ -18,6 +18,8 @@ from textual.widgets import (
     DataTable,
     Header,
     Input,
+    Label,
+    ListItem,
     ListView,
     Select,
     Static,
@@ -53,6 +55,8 @@ from ytmusic_tui.tui.messages import (
     SEARCH_INIT_NEXT,
     SEARCH_NO_RESULTS,
     SEARCH_STARTING,
+    THEMES_FOOTER,
+    THEMES_HINT,
     album_error,
     audio_quality_set,
     concurrent_set,
@@ -63,12 +67,20 @@ from ytmusic_tui.tui.messages import (
     download_quality_set,
     escape_markup,
     search_error,
+    theme_applied,
     volume_set,
 )
 from ytmusic_tui.tui.playback_controller import PlaybackController
 from ytmusic_tui.tui.playlist_controller import PlaylistController
 from ytmusic_tui.tui.queue import PlaybackQueue
 from ytmusic_tui.tui.similar import SimilarPicker
+from ytmusic_tui.tui.themes import (
+    THEME_BY_KEY,
+    THEME_CATALOG,
+    render_theme_preview,
+    resolve_theme,
+    theme_label,
+)
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
@@ -161,6 +173,7 @@ class MainScreen(
         Binding("P", "add_album_to_playlist", "Adicionar álbum à playlist"),
         Binding("escape", "back_to_search", "Voltar", show=False),
         Binding("ctrl+l", "library", "Biblioteca"),
+        Binding("ctrl+t", "themes", "Temas"),
         Binding("f1", "help", "Ajuda"),
     ]
 
@@ -183,6 +196,7 @@ class MainScreen(
         self._album_epoch: int = 0
 
     def compose(self) -> ComposeResult:
+        active_theme = resolve_theme(settings.theme)
         yield Header(show_clock=True)
 
         with TabbedContent(initial="tab-search", id="main-tabs"):
@@ -234,6 +248,31 @@ class MainScreen(
                 yield Static("[b]Gerenciador de Downloads[/b]", classes="section-title")
                 yield Static(DOWNLOADS_EMPTY_TEXT, id="downloads-message")
                 yield DataTable(id="downloads-table")
+
+            with TabPane("🎨 Temas", id="tab-themes"):
+                yield Static("[b]🎨 Temas[/b]", classes="section-title")
+                with Horizontal(id="themes-body"):
+                    with Vertical(id="themes-list-panel"):
+                        yield Static(THEMES_HINT, id="themes-hint")
+                        yield ListView(
+                            *(
+                                ListItem(
+                                    Label(
+                                        theme_label(
+                                            info,
+                                            active=info.key == active_theme,
+                                        )
+                                    ),
+                                    id=f"theme-{info.key}",
+                                )
+                                for info in THEME_CATALOG
+                            ),
+                            id="theme-list",
+                            initial_index=None,
+                        )
+                    with Vertical(id="themes-preview-panel"):
+                        yield Static("", id="theme-preview")
+                yield Static(THEMES_FOOTER, id="themes-footer")
 
             with TabPane("⚙️ Config", id="tab-settings"):  # noqa: SIM117 (compose Textual)
                 with Vertical(id="settings-content"):
@@ -351,6 +390,12 @@ class MainScreen(
             self.refresh_playlists()
         elif pane_id == "tab-downloads":
             self.update_downloads_table()
+        elif pane_id == "tab-themes":
+            self._open_themes_tab()
+        else:
+            # Prévia não confirmada não vira tema "fantasma": ao sair da
+            # aba sem Enter, volta ao tema salvo no TOML.
+            self._discard_theme_preview()
 
     # ===== Álbuns =====
 
@@ -491,6 +536,98 @@ class MainScreen(
         """Abre a aba da biblioteca local."""
         self._switch_tab("tab-library")
         self.refresh_library()
+
+    def action_themes(self) -> None:
+        """Abre a aba 🎨 Temas e foca a lista de temas."""
+        self._switch_tab("tab-themes")
+        self.call_after_refresh(self._focus_theme_list)
+
+    # ===== Temas =====
+
+    @staticmethod
+    def _theme_key_from_item(item: ListItem) -> str | None:
+        """Chave do tema a partir do id ``theme-<chave>`` do item."""
+        item_id = item.id or ""
+        prefix = "theme-"
+        if item_id.startswith(prefix):
+            return item_id[len(prefix) :]
+        return None
+
+    def _theme_index(self, key: str) -> int:
+        """Índice do tema no catálogo (0 quando a chave não está na lista)."""
+        return next(
+            (index for index, info in enumerate(THEME_CATALOG) if info.key == key),
+            0,
+        )
+
+    def _open_themes_tab(self) -> None:
+        """Posiciona a lista no tema salvo e atualiza a prévia.
+
+        A lista é montada com ``initial_index=None``: abrir o app não pode
+        disparar a prévia do primeiro tema e sobrescrever o tema salvo. A
+        seleção só acontece quando a aba é aberta de fato.
+        """
+        try:
+            view = self.query_one("#theme-list", ListView)
+        except Exception:
+            return
+        key = resolve_theme(settings.theme)
+        index = self._theme_index(key)
+        if view.index != index:
+            view.index = index  # dispara Highlighted -> _preview_theme
+        else:
+            self._preview_theme(key)
+        self.call_after_refresh(self._focus_theme_list)
+
+    def _focus_theme_list(self) -> None:
+        """Foca a lista de temas, garantindo um item destacado."""
+        with contextlib.suppress(Exception):
+            view = self.query_one("#theme-list", ListView)
+            if view.index is None and len(view):
+                view.index = self._theme_index(resolve_theme(settings.theme))
+            view.focus()
+
+    def _preview_theme(self, key: str) -> None:
+        """Aplica a prévia ao vivo e atualiza o painel lateral."""
+        resolved = resolve_theme(key)
+        if self.app.theme != resolved:
+            self.app.theme = resolved
+        info = THEME_BY_KEY.get(resolved)
+        if info is not None:
+            with contextlib.suppress(Exception):
+                self.query_one("#theme-preview", Static).update(render_theme_preview(info))
+
+    def _discard_theme_preview(self) -> None:
+        """Volta ao tema salvo ao sair da aba sem confirmar a prévia."""
+        saved = resolve_theme(settings.theme)
+        if self.app.theme != saved:
+            self._preview_theme(saved)
+
+    def _refresh_theme_labels(self, active_key: str) -> None:
+        """Atualiza o marcador ✓ sem remontar a lista (preserva o cursor)."""
+        for info in THEME_CATALOG:
+            with contextlib.suppress(Exception):
+                item = self.query_one(f"#theme-{info.key}", ListItem)
+                item.query_one(Label).update(theme_label(info, active=info.key == active_key))
+
+    def _apply_selected_theme(self, view: ListView) -> None:
+        """Aplica e persiste o tema destacado (Enter na lista)."""
+        if view.index is None or not 0 <= view.index < len(THEME_CATALOG):
+            return
+        info = THEME_CATALOG[view.index]
+        # Garante o tema mesmo se o Enter veio de um clique sem Highlighted.
+        self._preview_theme(info.key)
+        if self._save_setting(theme=info.key):
+            self._toast(theme_applied(info.label))
+        self._refresh_theme_labels(info.key)
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        """Prévia ao vivo ao mover o cursor na lista de temas."""
+        if event.list_view.id != "theme-list" or event.item is None:
+            return
+        key = self._theme_key_from_item(event.item)
+        if key is not None:
+            self._preview_theme(key)
 
     def action_play_album(self) -> None:
         """Toca o álbum aberto na Biblioteca desde a primeira faixa (R6).
@@ -723,6 +860,9 @@ class MainScreen(
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Reproduz o item selecionado (ou abre o álbum) em uma lista."""
         view = event.list_view
+        if view.id == "theme-list":
+            self._apply_selected_theme(view)
+            return
         if isinstance(view, SongListView):
             song = view.get_selected_song()
             if song and view.id:

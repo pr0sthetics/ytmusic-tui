@@ -29,7 +29,7 @@ import ytmusic_tui.download as download_mod
 from tests.security._fakes import FakeDownloadError, FakeYoutubeDL, fake_yt_dlp
 from ytmusic_tui.api import ytmusic
 from ytmusic_tui.api.models import Album, AlbumDetail, SearchResult, Track
-from ytmusic_tui.config import settings
+from ytmusic_tui.config import DEFAULT_THEME, settings
 from ytmusic_tui.download import (
     DownloadOutcome,
     DownloadStatus,
@@ -63,6 +63,7 @@ from ytmusic_tui.tui.dialogs import (
 from ytmusic_tui.tui.messages import NO_TRACK_PLAYING, format_key, help_shortcut_lines
 from ytmusic_tui.tui.playback_controller import ensure_audio_file
 from ytmusic_tui.tui.queue import QueueItem
+from ytmusic_tui.tui.themes import THEME_CATALOG
 from ytmusic_tui.tui.widgets import (
     AlbumListView,
     LibraryListView,
@@ -197,6 +198,7 @@ async def test_switch_tabs_and_render_search():
             "tab-library",
             "tab-downloads",
             "tab-settings",
+            "tab-themes",
             "tab-playlists",
         ):
             screen.query_one("#main-tabs", TabbedContent).active = tab_id
@@ -227,6 +229,106 @@ async def test_switch_tabs_and_render_search():
         assert view.songs[0].video_id == "abc123"
         # C1: o item precisa existir de fato no DOM (antes: 0 ListItems)
         assert len(view.children) == 1
+
+
+@pytest.mark.asyncio
+async def test_aba_temas_lista_previa_e_persiste(monkeypatch):
+    """Aba 🎨: lista o catálogo, prévia ao vivo e Enter grava o tema."""
+    monkeypatch.setattr(settings, "theme", DEFAULT_THEME)
+    saved: list[dict[str, object]] = []
+
+    def _save(self, **updates: object) -> None:
+        saved.append(updates)
+        for key, value in updates.items():
+            setattr(self, key, value)
+
+    monkeypatch.setattr(type(settings), "update_and_save", _save)
+
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        screen = app.screen
+        tabs = screen.query_one("#main-tabs", TabbedContent)
+        tabs.active = "tab-themes"
+        await pilot.pause()
+
+        view = screen.query_one("#theme-list", ListView)
+        assert len(view) == len(THEME_CATALOG)
+        assert view.index == 0  # GitHub Escuro é o padrão e o primeiro da lista
+
+        preview = screen.query_one("#theme-preview", Static)
+        assert "GitHub Escuro" in preview.render().plain
+
+        nord_index = next(index for index, info in enumerate(THEME_CATALOG) if info.key == "nord")
+        view.index = nord_index
+        await pilot.pause()
+        assert app.theme == "nord"
+        assert app.theme_variables["background"].lower() == "#2e3440"
+        assert "Nord" in preview.render().plain
+
+        # Sair sem Enter descarta a prévia e volta ao tema salvo.
+        tabs.active = "tab-search"
+        await pilot.pause()
+        assert app.theme == DEFAULT_THEME
+
+        tabs.active = "tab-themes"
+        await pilot.pause()
+        assert app.theme == DEFAULT_THEME
+        view.index = nord_index
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+        assert saved[-1] == {"theme": "nord"}
+        assert settings.theme == "nord"
+        assert "✓" in str(view.children[nord_index].query_one(Label).render())
+
+
+@pytest.mark.asyncio
+async def test_tema_salvo_abre_aplicado_e_aba_nao_sobrescreve(monkeypatch):
+    """O tema do TOML vale no startup; abrir a aba não volta ao primeiro item."""
+    monkeypatch.setattr(settings, "theme", "nord")
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        assert app.theme == "nord"
+
+        screen = app.screen
+        view = screen.query_one("#theme-list", ListView)
+        assert view.index is None  # sem prévia automática no mount
+
+        screen.query_one("#main-tabs", TabbedContent).active = "tab-themes"
+        await pilot.pause()
+        assert app.theme == "nord"
+        assert view.index == next(
+            index for index, info in enumerate(THEME_CATALOG) if info.key == "nord"
+        )
+
+
+@pytest.mark.asyncio
+async def test_tema_invalido_no_config_cai_no_padrao(monkeypatch):
+    """Nome desconhecido não impede a TUI de abrir."""
+    monkeypatch.setattr(settings, "theme", "tema-que-nao-existe")
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        assert app.theme == DEFAULT_THEME
+
+
+@pytest.mark.asyncio
+async def test_ctrl_t_abre_aba_temas_e_foca_a_lista():
+    app = YTMusicTUI()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.pause()
+        await pilot.press("ctrl+t")
+        await pilot.pause()
+        await pilot.pause()
+
+        screen = app.screen
+        assert screen.query_one("#main-tabs", TabbedContent).active == "tab-themes"
+        focused = screen.focused
+        assert isinstance(focused, ListView)
+        assert focused.id == "theme-list"
 
 
 @pytest.mark.asyncio
@@ -1765,7 +1867,12 @@ async def test_abas_abrem_na_busca_com_playlists_primeiro():
 
         assert _index("tab-playlists") < _index("tab-search")
         assert _index("tab-search") < _index("tab-album") < _index("tab-library")
-        assert _index("tab-library") < _index("tab-downloads") < _index("tab-settings")
+        assert (
+            _index("tab-library")
+            < _index("tab-downloads")
+            < _index("tab-themes")
+            < _index("tab-settings")
+        )
         # A aba de álbum existe, mas começa oculta (só abre pela busca).
         album_tab = tabbed.get_tab("tab-album")
         assert album_tab is not None and album_tab.has_class("-hidden")

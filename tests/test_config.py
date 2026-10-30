@@ -47,6 +47,43 @@ def test_settings_defaults(tmp_path, monkeypatch):
     assert settings.mpv_volume == 50
     assert settings.download_format == "mp3"
     assert settings.download_quality == "320"
+    assert settings.theme == "github-dark"
+
+
+def test_theme_persiste_e_e_relido(tmp_path, monkeypatch):
+    """A escolha da aba 🎨 Temas sobrevive a uma nova instância."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml = tmp_path / "config.toml"
+    settings = isolated_settings(toml)()
+    settings.update_and_save(theme="nord")
+
+    assert 'theme = "nord"' in toml.read_text(encoding="utf-8")
+    assert isolated_settings(toml)().theme == "nord"
+
+
+def test_theme_vazio_usa_o_padrao(tmp_path, monkeypatch):
+    """TOML com tema em branco não vira nome inválido na TUI."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml = tmp_path / "config.toml"
+    toml.write_text('theme = "   "\n', encoding="utf-8")
+    assert isolated_settings(toml)().theme == "github-dark"
+
+
+def test_theme_desconhecido_e_aceito_na_config(tmp_path, monkeypatch):
+    """O catálogo vive na TUI; a config não deve falhar por nome antigo."""
+    monkeypatch.setenv("YTMUSIC_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("YTMUSIC_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("YTMUSIC_CACHE_DIR", str(tmp_path / "cache"))
+
+    toml = tmp_path / "config.toml"
+    toml.write_text('theme = "tema-que-nao-existe"\n', encoding="utf-8")
+    assert isolated_settings(toml)().theme == "tema-que-nao-existe"
 
 
 def test_settings_validation(tmp_path, monkeypatch):

@@ -6,6 +6,25 @@ e o projeto usa [versionamento semântico](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Adicionado
+
+- **Aba 🎨 Temas (T18):** `Ctrl+T` abre uma aba integrada com 27 temas
+  (8 do projeto + 19 embutidos do Textual), incluindo Catppuccin (4
+  variantes), Nord, Monokai, Solarized (escuro/claro), Kanagawa,
+  Everforest, Ayu, Nightfox, Gruvbox, Dracula, Tokyo Night, Rosé Pine,
+  Atom One e Flexoki. `↑`/`↓` faz prévia ao vivo; `Enter` aplica e grava
+  `theme` no `config.toml`; sair da aba sem confirmar volta ao tema salvo.
+  O tema escolhido é aplicado antes da tela principal montar.
+- **Temas do projeto:** GitHub Escuro (novo padrão, preserva o visual
+  anterior), GitHub Claro, Kanagawa, Everforest, Ayu Escuro, Nightfox,
+  Monokai Pro e Gruvbox Claro, com contraste de botões/cursor calculado
+  para cada paleta.
+- **CSS 100% orientado a tema:** o `app.tcss` deixou de fixar
+  `$background`, `$primary`, `$text` etc.; todas as telas, abas, modais,
+  listas, tabela de downloads e barra do player acompanham o tema ativo.
+- **Configuração `theme`:** documentada no `config.example.toml`; nome
+  vazio ou desconhecido cai no padrão sem impedir a abertura da TUI.
+
 ## [0.4.0] - 2026-10-27
 
 ### Adicionado

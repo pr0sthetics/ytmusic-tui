@@ -6,13 +6,13 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Tests](https://img.shields.io/badge/tests-712%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-727%20passing-brightgreen)
 ![CI](https://github.com/pr0sthetics/ytmusic-tui/actions/workflows/ci.yml/badge.svg)
 ![AI-native](https://img.shields.io/badge/AI--native-multi--model-blueviolet)
 
 > ## 🤖 AI-native, human-verified
 >
-> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **716 automated tests** (712 run offline by default) and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
+> This project is an **AI-native application**: the codebase, its architecture and its test suite are produced from high-level specifications through a **prompt-driven, multi-model workflow** — with the human author as architect, reviewer and integration tester every step of the way (see [Development methodology & AI stack](#-development-methodology--ai-stack)). It ships with **731 automated tests** (727 run offline by default) and real daily use, so it **actually works** — but it's pre-1.0: expect the occasional bug, code that "looks AI-written" and missing features (see **Limitations**).
 > Found a bug? Open an [issue](https://github.com/pr0sthetics/ytmusic-tui/issues). PRs are very welcome! 💜
 
 ---
@@ -32,7 +32,7 @@ A **minimalist, fast and lightweight TUI client** for YouTube Music, right in yo
 - 📊 **Downloads** tab with real-time progress and configurable simultaneous downloads
 - 🚫 **No login**: search, playback and download all operate anonymously
 - ⌨️ Responsive **Textual** interface, with mouse support (tabs, lists, buttons) and vim-style shortcuts
-- 🎨 **Themes** from the command palette: `Ctrl+P` (or the ⭘ button in the header) → **Theme** switches to any of Textual's built-in themes (Dracula, Nord, Gruvbox, Catppuccin, Solarized, Tokyo Night, dark/light variants); the choice applies to the current session
+- 🎨 **Theme gallery**: `Ctrl+T` opens the **🎨 Temas** tab with 27 themes — GitHub (dark/light), Catppuccin (4 variants), Nord, Monokai, Solarized (dark/light), Kanagawa, Everforest, Ayu, Nightfox, Gruvbox, Dracula, Tokyo Night, Rosé Pine, Atom One, Flexoki and more. `↑`/`↓` previews live, `Enter` applies and saves the choice to `config.toml`
 - ⚡ **Lightweight**: no Electron, no browser — just Python + mpv (~90 MB of memory at startup, proportional share; ~125 MB RSS)
 
 ## 📸 Screenshots
@@ -211,7 +211,7 @@ mkdir -p ~/.config/ytmusic-tui
 cp config.example.toml ~/.config/ytmusic-tui/config.toml
 ```
 
-One thing that isn't a config file setting: the **theme** — switch it live in the command palette (`Ctrl+P` → **Theme**; it applies to the current session).
+The theme is a normal config key (`theme`) and can also be changed in the **🎨 Temas** tab (`Ctrl+T`); the choice is saved immediately.
 
 ### 4. Updating and downgrading
 
@@ -324,8 +324,9 @@ The queue, shuffle and repeat are **session-only**: closing the app loses them (
 | `Esc` | Back from the album to the search; back one level in the library/playlist |
 | `L` | Like / unlike (local, for downloaded tracks) |
 | `Ctrl+L` | Go to the library |
+| `Ctrl+T` | Open the 🎨 Temas tab (live preview; `Enter` saves) |
 | `F1` | Help |
-| `Ctrl+P` | Open the command palette — theme, keys, screenshot |
+| `Ctrl+P` | Open the command palette — keys, screenshot |
 | `Ctrl+Q` | Quit |
 
 The mouse works too: click on tabs, results and buttons.
@@ -347,6 +348,7 @@ The app's **Config** tab edits the main options and writes to that same file rig
 | `show_notifications` | `true` | Toast notifications |
 | `auto_play_next` | `true` | Automatically play the next track in the queue |
 | `auto_similar` | `true` | At the end of the queue with repeat off, continue with related tracks (radio; requires `auto_play_next`) |
+| `theme` | `"github-dark"` | UI theme (see the 🎨 Temas tab); e.g. `catppuccin-mocha`, `nord`, `monokai`, `solarized-dark`, `kanagawa` |
 | `library_db_name` | `"library.db"` | SQLite file name of the local library |
 | `config_dir`, `data_dir`, `cache_dir` | XDG | Internal directories (advanced, usually don't touch) |
 
@@ -442,8 +444,8 @@ than the app).
 
 **Young project:**
 - Interface and messages **in Portuguese**
-- **AI-native, human-verified** (note at the top): the 712 offline tests cover the main flow, but the occasional bug is expected
-- No MPRIS, lyrics or equalizer (Roadmap). Automatic radio continues the queue with related tracks; it is not a personalized home or a generated playlist. Built-in **themes** are available from the command palette and apply to the current session; custom theme files are not supported yet.
+- **AI-native, human-verified** (note at the top): the 727 offline tests cover the main flow, but the occasional bug is expected
+- No MPRIS, lyrics or equalizer (Roadmap). Automatic radio continues the queue with related tracks; it is not a personalized home or a generated playlist. **27 themes** are available in the 🎨 Temas tab and persist in the config; custom user theme files are not supported yet.
 
 ## 🆘 When something breaks (and it's not the app)
 
@@ -589,7 +591,8 @@ Looking to update a **local installation** (pipx/pip), pin an older version or u
 - [ ] Synced lyrics
 - [ ] MPRIS control (desktop integration)
 - [ ] Equalizer
-- [ ] Custom themes
+- [x] Integrated theme gallery (27 themes, live preview, persisted choice)
+- [ ] User-defined theme files
 - [ ] Last.fm / ListenBrainz integration
 
 ## 📄 License

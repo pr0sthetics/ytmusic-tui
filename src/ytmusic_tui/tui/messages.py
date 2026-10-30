@@ -314,6 +314,19 @@ def download_cancelled(title: str) -> str:
     return f"Download cancelado: {title}"
 
 
+# --- Temas (aba 🎨) ---
+THEME_DARK = "Escuro"
+THEME_LIGHT = "Claro"
+THEME_CUSTOM = "personalizado"
+THEME_BUILTIN = "embutido"
+THEMES_HINT = "Escolha um tema — a prévia muda ao vivo."
+THEMES_FOOTER = "↑/↓ prévia ao vivo · Enter aplica e salva · Ctrl+T abre esta aba"
+
+
+def theme_applied(name: str) -> str:
+    return f"🎨 Tema aplicado: {name}"
+
+
 # --- Biblioteca local ---
 LIBRARY_EMPTY_TEXT = (
     "Nenhuma faixa na biblioteca local ainda.\nBaixe músicas com Ctrl+D durante a reprodução."

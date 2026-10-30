@@ -45,6 +45,11 @@ auto_play_next = true
 # Ao fim da fila (repeat desligado), continuar com músicas parecidas (rádio)
 auto_similar = true
 
+# Tema da interface. Veja a lista completa na aba "🎨 Temas" do app.
+# Padrão: "github-dark". Exemplos: "catppuccin-mocha", "nord", "monokai",
+# "solarized-dark", "kanagawa", "everforest", "gruvbox-light".
+theme = "github-dark"
+
 # Dica: as opções da aba "Config" do app são gravadas neste mesmo arquivo.
 
 # =============================================================================

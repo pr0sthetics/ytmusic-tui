@@ -61,7 +61,7 @@
 
   <!--
     VERSION AND COUNTS — single source of truth.
-    Current release: v0.4.0 (2026-10-27) · tests: 716 automated / 712 offline.
+    Current release: v0.4.0 (2026-10-27) · tests: 731 automated / 727 offline.
     On a release, update: this block, the running head, the synopsis if needed,
     the diagnostics ledger, meta/OG/JSON-LD, the footer, robots/sitemap only if
     the domain changes. Nothing is fetched at runtime.
@@ -250,7 +250,7 @@
             </div>
             <div>
               <dt>Themes and diagnostics</dt>
-              <dd>Switch Textual themes from the command palette. Run <code class="nowrap">ytmusic-tui doctor</code> for a masked, paste-ready environment report.</dd>
+              <dd><kbd>Ctrl+T</kbd> opens the <strong>🎨 Temas</strong> tab with 27 themes (Catppuccin, Nord, Monokai, Solarized, GitHub, Kanagawa, Everforest and more). Arrow keys preview live; <kbd>Enter</kbd> saves the choice to <code class="nowrap">config.toml</code>. Run <code class="nowrap">ytmusic-tui doctor</code> for a masked, paste-ready environment report.</dd>
             </div>
           </dl>
           <p class="aside">Video results play and download as audio; there is no video image. Adding a track to a playlist from search requires that track to be downloaded first.</p>
@@ -271,6 +271,7 @@
               <dl class="key-list">
                 <div><dt><kbd>Ctrl+S</kbd></dt><dd>Search</dd></div>
                 <div><dt><kbd>Ctrl+L</kbd></dt><dd>Library</dd></div>
+                <div><dt><kbd>Ctrl+T</kbd></dt><dd>Themes</dd></div>
                 <div><dt><kbd>Enter</kbd></dt><dd>Play track / open album</dd></div>
                 <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
                 <div><dt><kbd>Right</kbd> <span>/</span> <kbd>Left</kbd></dt><dd>Next / previous</dd></div>
@@ -502,7 +503,7 @@ ytmusic-tui doctor</code></pre>
         <div class="section-body">
           <dl class="ledger">
             <div><dt>Release</dt><dd>v0.4.0 <span>2026-10-27</span></dd></div>
-            <div><dt>Tests</dt><dd>716 automated <span>712 run offline by default</span></dd></div>
+            <div><dt>Tests</dt><dd>731 automated <span>727 run offline by default</span></dd></div>
             <div><dt>CI</dt><dd>Python 3.11 and 3.13 <span>pip-audit, packaging and a weekly contract check</span></dd></div>
             <div><dt>License</dt><dd>MIT <span>© 2026 Eeyore</span></dd></div>
             <div><dt>Distribution</dt><dd>GitHub <span>not on PyPI yet</span></dd></div>
@@ -550,7 +551,7 @@ ytmusic-tui doctor</code></pre>
             </li>
             <li>
               <strong>Still on the roadmap.</strong>
-              <p>MPRIS, synced lyrics, equalizer, automatic radio, custom theme files and Last.fm/ListenBrainz are not here yet.</p>
+              <p>MPRIS, synced lyrics, equalizer, custom theme files and Last.fm/ListenBrainz are not here yet.</p>
             </li>
           </ul>
           <p class="aside">Also worth knowing: video results play as audio, and adding a track to a playlist from search requires it to be downloaded first.</p>
@@ -585,7 +586,7 @@ ytmusic-tui doctor</code></pre>
             </details>
             <details>
               <summary>Can I change the theme?</summary>
-              <div class="answer"><p>Yes. <kbd>Ctrl+P</kbd> opens the command palette; pick any built-in Textual theme. It applies to the current session. Custom theme files are on the roadmap.</p></div>
+              <div class="answer"><p>Yes. <kbd>Ctrl+T</kbd> opens the <strong>🎨 Temas</strong> tab. Use <kbd>Up</kbd>/<kbd>Down</kbd> for a live preview and <kbd>Enter</kbd> to apply and save. The 27 themes include Catppuccin, Nord, Monokai, Solarized, GitHub, Kanagawa and Everforest. Custom theme files are on the roadmap.</p></div>
             </details>
             <details>
               <summary>What if downloads break?</summary>

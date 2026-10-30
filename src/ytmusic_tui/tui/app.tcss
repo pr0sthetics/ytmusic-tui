@@ -83,7 +83,7 @@ Screen {
 
 #downloads-table > .datatable--header {
     background: $primary;
-    color: $text;
+    color: $button-color-foreground;
 }
 
 #downloads-table > .datatable--cursor {
@@ -94,6 +94,47 @@ Screen {
     padding: 1;
     height: 1fr;
     overflow-y: auto;
+}
+
+/* Aba 🎨 Temas: lista à esquerda, prévia ao vivo à direita */
+#themes-body {
+    height: 1fr;
+    margin: 1;
+}
+
+#themes-list-panel {
+    width: 2fr;
+    min-width: 24;
+    height: 1fr;
+}
+
+#themes-preview-panel {
+    width: 3fr;
+    height: 1fr;
+    margin-left: 1;
+    padding: 1 2;
+    background: $surface;
+    border: solid $secondary;
+    overflow-y: auto;
+}
+
+#theme-list {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#theme-preview {
+    height: auto;
+}
+
+#themes-hint,
+#themes-footer {
+    color: $text-muted;
+}
+
+#themes-footer {
+    height: 1;
+    padding: 0 1;
 }
 
 #settings-content Collapsible {
@@ -256,12 +297,12 @@ Button {
 
 Button.--primary {
     background: $primary;
-    color: $text;
+    color: $button-color-foreground;
 }
 
 Button.--error {
     background: $error;
-    color: $text;
+    color: $button-color-foreground;
 }
 
 /* Input */
@@ -427,16 +468,9 @@ ErrorDetailScreen {
     height: auto;
 }
 
-/* Custom colors for dark theme */
-$background: #0d1117;
-$surface: #161b22;
-$primary: #58a6ff;
-$secondary: #30363d;
-$text: #e6edf3;
-$text-muted: #8b949e;
-$error: #f85149;
-$success: #3fb950;
-$warning: #d29922;
+/* As cores agora vêm do tema ativo (aba 🎨 Temas): o app.tcss só usa
+   variáveis ($background, $primary, $text, ...). Não fixe cores aqui —
+   isso impediria a troca de tema de mudar a interface inteira. */
 /* Fila de reprodução (Fase 2/P01) */
 QueueScreen {
     align: center middle;
